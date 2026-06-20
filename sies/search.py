@@ -46,7 +46,7 @@ def main() -> None:
         for i, s in enumerate(ranked, 1):
             c = s.candidate
             print(f"{i:>2}. 점수 {s.score:.3f} (유사도 {s.similarity:.3f} · 활성도 {s.activity:.2f}"
-                  f"{' · 밴드밖' if not s.in_band else ''}) [{c['title']}] {c['timestamp']}")
+                  f" · 밴드 {s.band_weight:.2f}) [{c['title']}] {c['timestamp']}")
             print(f"    {_preview(c['text'])}")
     else:
         ranked = rank_baseline(pool)[: args.k]

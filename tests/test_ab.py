@@ -5,7 +5,7 @@ from sies.ab import candidate_key, hit_rate, make_record
 from sies.stats import aggregate
 
 
-def _scored(cid, title, sim, score=0.0, activity=0.5, in_band=True):
+def _scored(cid, title, sim, score=0.0, activity=0.5, band_weight=1.0):
     cand = {
         "id": cid,
         "title": title,
@@ -14,7 +14,7 @@ def _scored(cid, title, sim, score=0.0, activity=0.5, in_band=True):
         "text": f"본문 {cid}",
     }
     return SimpleNamespace(
-        candidate=cand, similarity=sim, score=score, activity=activity, in_band=in_band
+        candidate=cand, similarity=sim, score=score, activity=activity, band_weight=band_weight
     )
 
 
