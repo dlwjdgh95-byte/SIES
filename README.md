@@ -36,6 +36,14 @@ uv run python -m sies.search "할머니에 대한 기억"
 uv run python -m sies.bench --models kure bge-m3
 ```
 
+## 테스트
+
+임베딩 모델 없이 도는 단위 테스트 (corpus 파싱·청킹·sqlite-vec 왕복):
+
+```bash
+uv run pytest
+```
+
 ## 구조
 
 ```
