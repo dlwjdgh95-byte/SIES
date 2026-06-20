@@ -1,0 +1,21 @@
+# ── 개인 코퍼스: 절대 커밋 금지 (public repo) ──
+# 폴더 구조(.gitkeep)와 README만 추적하고, 실제 글 파일은 모두 무시한다.
+corpus/**
+!corpus/
+!corpus/*/
+!corpus/**/.gitkeep
+!corpus/README.md
+
+# 생성물 / 캐시
+*.db
+*.sqlite
+*.sqlite3
+embeddings/
+.cache/
+__pycache__/
+*.pyc
+
+# 환경
+.env
+.venv/
+venv/

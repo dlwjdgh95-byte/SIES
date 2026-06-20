@@ -1,0 +1,21 @@
+[project]
+name = "sies"
+version = "0.1.0"
+description = "망각된-가치 검색기 — 활성도와 분리된 '가치'로 잊힌 글을 끌어올리는 개인용 검색 엔진"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch>=2.2",
+    "sentence-transformers>=3.0",
+    "sqlite-vec>=0.1.6",
+    "numpy>=1.26",
+    "python-frontmatter>=1.1",
+]
+
+# CPU 전용 torch (WSL, GPU 없음 가정) — CUDA 휠(수 GB) 대신 CPU 휠을 받는다
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
