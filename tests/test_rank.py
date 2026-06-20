@@ -11,6 +11,7 @@ from sies.rank import (
     double_sigmoid,
     newer_counts,
     rank_baseline,
+    rank_gated,
     rank_inverted,
     volume_activity,
 )
@@ -265,3 +266,32 @@ def test_baseline_sorts_by_similarity():
     cands = [_cand(0.5, "2025-01-01"), _cand(0.9, "2025-01-01"), _cand(0.7, "2025-01-01")]
     sims = [s.similarity for s in rank_baseline(cands)]
     assert sims == sorted(sims, reverse=True)
+
+
+# ── rank_gated (B) ───────────────────────────────────────────
+def test_gated_low_activity_keeps_pure_similarity():
+    # 저활성(오래됨)이면 유사도 그대로 → 관련 깊은 옛 글이 위로.
+    cands = [
+        _cand(0.55, "2024-01-01"),  # 잊힘 + 고유사도
+        _cand(0.70, "2024-01-01"),  # 잊힘 + 더 고유사도
+    ]
+    ranked = rank_gated(cands, NOW, half_life_days=365)
+    assert ranked[0].similarity > ranked[1].similarity     # 잊힌 것끼리는 유사도 순
+    assert abs(ranked[0].score - ranked[0].similarity) < 1e-9  # 저활성은 페널티 없음
+    assert all(s.band_weight == 1.0 for s in ranked)       # 밴드패스 없음
+
+
+def test_gated_penalizes_recent():
+    # 최근(고활성) 글은 유사도가 높아도 ×(1−활성도)로 눌린다.
+    cands = [
+        _cand(0.80, "2026-06-19"),  # 어제 = 고활성 → 큰 페널티
+        _cand(0.60, "2024-01-01"),  # 잊힘 → 유사도 그대로
+    ]
+    ranked = rank_gated(cands, NOW, half_life_days=365)
+    assert ranked[0].candidate["timestamp"] == "2024-01-01"  # 잊힌 글이 최근 고유사도를 이김
+    recent = next(s for s in ranked if s.candidate["timestamp"] == "2026-06-19")
+    assert recent.score < recent.similarity        # 최근은 페널티 받음
+
+
+def test_gated_empty():
+    assert rank_gated([], NOW) == []

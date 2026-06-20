@@ -34,6 +34,8 @@ BAND_HI = 85.0
 BAND_K = 50.0
 # 타임스탬프가 없는 글의 활성도(중립)
 MISSING_ACTIVITY = 0.5
+# 이 활성도 미만이면 '잊힌' 것으로 본다(gated 랭커의 통과 기준)
+LOW_ACTIVITY = 0.4
 
 
 def cosine_from_l2(distance: float) -> float:
@@ -169,6 +171,38 @@ def rank_inverted(
         a_final = min(a_time, a_vol)
         score = float(sim * (1.0 - a_final) * float(w))
         out.append(Scored(c, float(sim), a_final, float(w), score,
+                          activity_time=a_time, activity_vol=a_vol, volume=vol))
+    out.sort(key=lambda s: s.score, reverse=True)
+    return out
+
+
+def rank_gated(
+    candidates: list[dict],
+    now: dt.date,
+    half_life_days: float = DEFAULT_HALF_LIFE,
+    volume_half_life: float = DEFAULT_VOLUME_HALF_LIFE,
+    low: float = LOW_ACTIVITY,
+) -> list[Scored]:
+    """게이팅 랭커(B) — 밴드패스 없이 '잊힘'만 조건부로 거든다.
+
+        점수 = 유사도            (저활성: 이미 잊힌 글은 유사도로 줄세움 → 관련 깊은 옛 금)
+             = 유사도 × (1−활성도) (그 외: 최근일수록 누름)
+
+    오프라인 재실행에서 밴드패스 역전(공격적)·순수 잊힘보상(A)보다 나았던 식.
+    밴드 억제가 없으니 band_weight=1.0으로 둔다.
+    """
+    if not candidates:
+        return []
+    counts = newer_counts(candidates)
+    out: list[Scored] = []
+    for c in candidates:
+        sim = cosine_from_l2(c["distance"])
+        a_time = activity(_parse_ts(c.get("timestamp")), now, half_life_days)
+        vol = counts[c.get("doc_path") or c.get("title")]
+        a_vol = volume_activity(vol, volume_half_life)
+        a_final = min(a_time, a_vol)
+        score = sim if a_final < low else sim * (1.0 - a_final)
+        out.append(Scored(c, sim, a_final, 1.0, float(score),
                           activity_time=a_time, activity_vol=a_vol, volume=vol))
     out.sort(key=lambda s: s.score, reverse=True)
     return out

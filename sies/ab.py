@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 
 from .embed import DEFAULT_MODEL, MODELS, get_embedder
-from .rank import DEFAULT_HALF_LIFE, rank_baseline, rank_inverted
+from .rank import DEFAULT_HALF_LIFE, rank_baseline, rank_gated, rank_inverted
 from .retrieve import candidate_pool
 from .store import connect
 
@@ -131,7 +131,9 @@ def _print_side_by_side(record: dict) -> None:
     print("── 베이스라인(순수 유사도) ──")
     for i, c in enumerate(record["baseline"], 1):
         print(f"{i:>2}. 유사도 {c['similarity']:.3f} [{c['title']}] {c['timestamp']}")
-    print("\n── 역전(관련성 × (1−활성도) × 밴드패스) ──")
+    label = {"gated": "게이팅 B(저활성=유사도, 그 외 ×(1−활성도))",
+             "inverted": "역전(관련성 × (1−활성도) × 밴드패스)"}.get(record.get("ranker", "inverted"))
+    print(f"\n── {label} ──")
     for i, c in enumerate(record["inversion"], 1):
         print(f"{i:>2}. 점수 {c['score']:.3f} (유사도 {c['similarity']:.3f} · 활성도 {c['activity']:.2f}) "
               f"[{c['title']}] {c['timestamp']}")
@@ -145,6 +147,8 @@ def main() -> None:
     ap.add_argument("--log", default=DEFAULT_LOG)
     ap.add_argument("-k", type=int, default=5)
     ap.add_argument("--half-life", type=float, default=DEFAULT_HALF_LIFE)
+    ap.add_argument("--ranker", choices=["gated", "inverted"], default="gated",
+                    help="도전자 랭커: gated(B) 또는 inverted(밴드패스 역전)")
     ap.add_argument("--judge", action="store_true", help="블라인드 적중/헛것 판정")
     args = ap.parse_args()
 
@@ -155,8 +159,12 @@ def main() -> None:
     conn.close()
 
     baseline = rank_baseline(pool)
-    inverted = rank_inverted(pool, dt.date.today(), args.half_life)
-    record = make_record(args.query, args.model, args.half_life, args.k, baseline, inverted)
+    if args.ranker == "gated":
+        challenger = rank_gated(pool, dt.date.today(), args.half_life)
+    else:
+        challenger = rank_inverted(pool, dt.date.today(), args.half_life)
+    record = make_record(args.query, args.model, args.half_life, args.k, baseline, challenger)
+    record["ranker"] = args.ranker  # 도전자 슬롯('inversion' 키)이 어느 랭커였는지
 
     _print_side_by_side(record)
 
