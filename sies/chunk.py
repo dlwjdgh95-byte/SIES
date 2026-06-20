@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass
 
 from .corpus import Document
+from .normalize import strip_leading_marker
 
 MIN_CHARS = 40  # 이보다 짧은 문단은 독립 청크로 두지 않고 병합
 
@@ -48,7 +49,7 @@ def chunk_document(doc: Document) -> list[Chunk]:
                 title=doc.title,
                 timestamp=ts,
                 chunk_index=i,
-                text=para,
+                text=strip_leading_marker(para),
             )
         )
     return chunks

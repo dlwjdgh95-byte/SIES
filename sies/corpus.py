@@ -73,8 +73,11 @@ _HWP_MARKERS = re.compile(r"^\s*<(표|그림|개체|미주|각주)>\s*$")
 def _extract_pdf(path: Path) -> str:
     from pypdf import PdfReader
 
+    from .normalize import fix_spacing
+
     reader = PdfReader(str(path))
-    return "\n\n".join(page.extract_text() or "" for page in reader.pages)
+    raw = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+    return fix_spacing(raw)  # PDF 추출 띄어쓰기 오류 교정(이 포맷에서만 발생)
 
 
 def _extract_hwp(path: Path) -> str:
