@@ -33,6 +33,19 @@ def test_parse_iso_date():
     assert _parse_date("2019.03.01") == dt.date(2019, 3, 1)
 
 
+def test_parse_english_date():
+    assert _parse_date("May 30. 2026") == dt.date(2026, 5, 30)
+    assert _parse_date("Jun 2 2026") == dt.date(2026, 6, 2)
+    assert _parse_date("September 3rd, 2019") == dt.date(2019, 9, 3)
+    assert _parse_date("December 25 2020") == dt.date(2020, 12, 25)
+
+
+def test_parse_english_date_ignores_non_month_words():
+    # 월 이름이 아닌 단어 + 숫자는 날짜가 아니다
+    assert _parse_date("Section 12 2026") is None
+    assert _parse_date("chapter 3 2019") is None
+
+
 def test_parse_date_none_when_absent():
     assert _parse_date("날짜 없는 텍스트") is None
 
@@ -104,6 +117,24 @@ def test_timestamp_falls_back_to_mtime(tmp_path):
     doc = load_document(p)
     assert doc.timestamp_origin == "mtime"
     assert doc.timestamp is not None
+
+
+def test_timestamp_from_body_head_english_date(tmp_path):
+    # 시처럼 제목/작성자/날짜 헤더가 본문 머리에 있는 경우
+    p = tmp_path / "릴케.txt"
+    p.write_text("릴케\nby 돌멩이\nJun 2. 2026\n\n사랑이란 두 고독이…", encoding="utf-8")
+    doc = load_document(p)
+    assert doc.timestamp == dt.date(2026, 6, 2)
+    assert doc.timestamp_origin == "content"
+
+
+def test_body_date_not_scanned_deep(tmp_path):
+    # 머리(_HEAD_LINES) 한참 뒤의 산문 속 날짜는 무시 → mtime로
+    body_lines = ["줄 하나"] * 10 + ["2019년 3월 1일에 있었던 일"]
+    p = tmp_path / "essay.md"
+    p.write_text("# 제목\n\n" + "\n".join(body_lines), encoding="utf-8")
+    doc = load_document(p)
+    assert doc.timestamp_origin == "mtime"
 
 
 def test_content_date_wins_over_filename(tmp_path):

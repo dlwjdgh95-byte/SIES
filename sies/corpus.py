@@ -11,8 +11,11 @@ Notion export 형식을 처리한다:
 
     <본문 문단들...>
 
-타임스탬프는 (1) 내용의 날짜 메타 → (2) 파일명의 날짜 → (3) 파일 수정일자 순으로 정한다.
-(PDF·HWP 발굴 글은 보통 내용·파일명에 날짜가 없어 수정일자 = 진짜 옛 날짜로 떨어진다.)
+타임스탬프 우선순위:
+  (1) 내용 메타 날짜('key: value' 헤더) → (2) 본문 머리의 날짜 헤더(시 등) →
+  (3) 파일명의 날짜 → (4) 파일 수정일자.
+날짜는 한국어(2026년 3월 29일)·ISO(2026-03-29)·영어(May 30. 2026) 형식을 인식한다.
+(PDF·HWP 발굴 글은 보통 날짜가 없어 수정일자 = 진짜 옛 날짜로 떨어진다.)
 """
 from __future__ import annotations
 
@@ -34,9 +37,22 @@ SKIP_SUFFIXES = ("Zone.Identifier",)  # Windows 다운로드 ADS 잔재
 # 내용 메타에서 날짜를 담는 키 후보
 DATE_KEYS = ("모임일자", "작성일자", "작성일", "날짜", "date", "Date")
 
-# 한국어/숫자 날짜 패턴
+# 한국어/숫자/영어 날짜 패턴
 _KO_DATE = re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 _ISO_DATE = re.compile(r"(\d{4})[-./](\d{1,2})[-./](\d{1,2})")
+# 영어 월 이름: "May 30. 2026", "Jun 2 2026", "September 3rd, 2019"
+_EN_MONTHS = {
+    m: i
+    for i, m in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun",
+         "jul", "aug", "sep", "oct", "nov", "dec"], start=1)
+}
+_EN_DATE = re.compile(
+    r"\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\.?,?\s+(\d{4})\b"
+)
+
+# 본문 머리에서 날짜 헤더를 찾을 때 훑는 줄 수(제목/작성자/날짜가 사는 영역)
+_HEAD_LINES = 5
 
 
 @dataclass
@@ -84,9 +100,16 @@ def _read_raw(path: Path) -> str:
 
 def _parse_date(text: str) -> dt.date | None:
     m = _KO_DATE.search(text) or _ISO_DATE.search(text)
-    if not m:
-        return None
-    y, mo, d = (int(g) for g in m.groups())
+    if m:
+        y, mo, d = (int(g) for g in m.groups())
+    else:
+        em = _EN_DATE.search(text)
+        if not em:
+            return None
+        mo = _EN_MONTHS.get(em.group(1).lower()[:3])
+        if not mo:  # 월 이름이 아닌 단어(예: "Section 12 2026") → 무시
+            return None
+        d, y = int(em.group(2)), int(em.group(3))
     try:
         return dt.date(y, mo, d)
     except ValueError:
@@ -130,18 +153,25 @@ def _split_notion(raw: str) -> tuple[str, dict[str, str], str]:
     return title, meta, body
 
 
-def _resolve_timestamp(path: Path, meta: dict[str, str]) -> tuple[dt.date, str]:
-    # (1) 내용 메타의 날짜
+def _resolve_timestamp(
+    path: Path, meta: dict[str, str], body: str = ""
+) -> tuple[dt.date, str]:
+    # (1) 내용 메타의 날짜 (Notion 'key: value' 헤더)
     for key in DATE_KEYS:
         if key in meta:
             d = _parse_date(meta[key])
             if d:
                 return d, "content"
-    # (2) 파일명의 날짜
+    # (2) 본문 머리의 날짜 헤더 (시처럼 '제목/작성자/날짜' 줄을 가진 글)
+    head = "\n".join([ln for ln in body.splitlines() if ln.strip()][:_HEAD_LINES])
+    d = _parse_date(head)
+    if d:
+        return d, "content"
+    # (3) 파일명의 날짜
     d = _parse_date(path.stem)
     if d:
         return d, "filename"
-    # (3) 파일 수정일자
+    # (4) 파일 수정일자
     return dt.date.fromtimestamp(path.stat().st_mtime), "mtime"
 
 
@@ -159,7 +189,7 @@ def load_document(path: Path) -> Document:
     title = _clean_title(title, path)
     if not body:
         body = raw.strip()
-    ts, origin = _resolve_timestamp(path, meta)
+    ts, origin = _resolve_timestamp(path, meta, body)
     return Document(
         path=path,
         source=path.parent.name,
