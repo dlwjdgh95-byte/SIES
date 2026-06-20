@@ -1,6 +1,6 @@
 """코퍼스 로딩 — corpus/ 아래 글을 읽어 Document로 정규화한다.
 
-지원 형식: .md/.txt(직접), .pdf(pypdf), .hwp(pyhwp). 발굴된 옛 글은 PDF·HWP가 많다.
+지원 형식: .md/.txt(직접), .pdf(pypdf), .hwp(pyhwp), .docx(python-docx). 발굴된 옛 글은 PDF·HWP가 많다.
 
 Notion export 형식을 처리한다:
     # 제목
@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 TEXT_SUFFIXES = (".md", ".markdown", ".txt")
-BINARY_SUFFIXES = (".pdf", ".hwp")
+BINARY_SUFFIXES = (".pdf", ".hwp", ".docx")
 
 # 무시할 파일들: Notion 해시 잔재가 아니라 진짜 쓰레기/구조 파일
 SKIP_NAMES = {".gitkeep", "README.md"}
@@ -89,12 +89,21 @@ def _extract_hwp(path: Path) -> str:
     return "\n".join(lines)
 
 
+def _extract_docx(path: Path) -> str:
+    """python-docx로 문단 텍스트 추출. 빈 문단은 빈 줄로 남겨 문단 청킹을 돕는다."""
+    from docx import Document as _Docx
+
+    return "\n".join(p.text for p in _Docx(str(path)).paragraphs)
+
+
 def _read_raw(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         return _extract_pdf(path)
     if suffix == ".hwp":
         return _extract_hwp(path)
+    if suffix == ".docx":
+        return _extract_docx(path)
     return path.read_text(encoding="utf-8", errors="replace")
 
 
