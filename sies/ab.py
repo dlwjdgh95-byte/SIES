@@ -29,7 +29,7 @@ def candidate_key(c: dict) -> str:
     return str(c["id"])
 
 
-def _brief(scored, inverted: bool) -> dict:
+def _brief(scored, inverted: bool, activity: float | None = None) -> dict:
     c = scored.candidate
     d = {
         "id": c["id"],
@@ -38,8 +38,11 @@ def _brief(scored, inverted: bool) -> dict:
         "timestamp": c["timestamp"],
         "similarity": round(scored.similarity, 4),
     }
+    # 활성도는 method 무관 '잊힘도' — 적중 분석용으로 베이스라인 후보에도 심는다.
+    act = scored.activity if inverted else activity
+    if act is not None and act == act:  # NaN 제외
+        d["activity"] = round(act, 4)
     if inverted:
-        d["activity"] = round(scored.activity, 4)
         d["activity_time"] = round(scored.activity_time, 4)
         d["activity_vol"] = round(scored.activity_vol, 4)
         d["volume"] = scored.volume
@@ -50,13 +53,15 @@ def _brief(scored, inverted: bool) -> dict:
 
 def make_record(query, model, half_life, k, baseline, inverted) -> dict:
     """판정 전 세션 레코드(verdicts 비어 있음)."""
+    # 역전은 전체 풀을 점수화하므로 id→활성도 맵으로 베이스라인 후보에도 활성도를 채운다.
+    activity_by_id = {s.candidate["id"]: s.activity for s in inverted}
     return {
         "ts": dt.datetime.now().isoformat(timespec="seconds"),
         "query": query,
         "model": model,
         "half_life": half_life,
         "k": k,
-        "baseline": [_brief(s, False) for s in baseline[:k]],
+        "baseline": [_brief(s, False, activity_by_id.get(s.candidate["id"])) for s in baseline[:k]],
         "inversion": [_brief(s, True) for s in inverted[:k]],
         "verdicts": {},
     }

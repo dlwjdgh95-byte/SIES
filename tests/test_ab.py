@@ -94,3 +94,47 @@ def test_aggregate_macro_and_micro():
     # 마이크로: 베이스라인 1/3, 역전 3/3
     assert abs(agg["micro"]["baseline"] - 1 / 3) < 1e-9
     assert agg["micro"]["inversion"] == 1.0
+
+
+def test_aggregate_i_only_excludes_overlap():
+    # 역전 후보 3,4 중 4는 베이스라인에도 있음(overlap) → I-only는 3뿐.
+    # 3=hit → I-only 적중 1, 4는 베이스라인과 겹쳐 카운트 제외.
+    base = [_scored(1, "A", 0.9), _scored(4, "D", 0.7)]
+    inv = [_scored(3, "C", 0.6, score=0.3), _scored(4, "D", 0.7, score=0.2)]
+    rec = make_record("q", "kure", 365.0, 2, base, inv)
+    rec["verdicts"] = {"1": "miss", "3": "hit", "4": "hit"}
+    io = aggregate([rec])["i_only"]
+    assert io["candidates"] == 1          # 3만 I-only(4는 overlap)
+    assert io["hit"] == 1
+    assert io["judged"] == 1
+    assert io["sessions_with_hit"] == 1
+
+
+def test_aggregate_hits_forgotten():
+    # 전체 풀(inverted)이 활성도를 제공 → 베이스라인 후보에도 활성도가 박힌다.
+    base = [_scored(1, "A", 0.90, activity=0.80), _scored(2, "B", 0.85, activity=0.20)]
+    inv = [
+        _scored(1, "A", 0.90, score=0.1, activity=0.80),
+        _scored(2, "B", 0.85, score=0.2, activity=0.20),
+        _scored(3, "C", 0.60, score=0.3, activity=0.90),
+    ]
+    rec = make_record("q", "kure", 365.0, 3, base, inv)
+    rec["verdicts"] = {"1": "hit", "2": "hit", "3": "miss"}
+    hf = aggregate([rec])["hits_forgotten"]
+    assert hf["hit_total"] == 2          # 1,2 적중(합집합)
+    assert hf["with_activity"] == 2      # 둘 다 활성도 기록 있음(베이스라인 1 포함)
+    assert hf["low_activity"] == 1       # 2만 저활성(0.20 < 0.4)
+    assert hf["activity_median"] == 0.5  # [0.20, 0.80] 중앙값
+
+
+def test_aggregate_i_only_skip_not_judged():
+    # I-only 후보가 skip이면 judged 분모에서 빠지고 적중도 아님.
+    base = [_scored(1, "A", 0.9)]
+    inv = [_scored(2, "C", 0.6, score=0.3)]
+    rec = make_record("q", "kure", 365.0, 1, base, inv)
+    rec["verdicts"] = {"1": "hit", "2": "skip"}
+    io = aggregate([rec])["i_only"]
+    assert io["candidates"] == 1
+    assert io["hit"] == 0
+    assert io["judged"] == 0
+    assert io["sessions_with_hit"] == 0
