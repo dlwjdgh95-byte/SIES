@@ -49,7 +49,7 @@ uv run pytest
 ```
 corpus/          # 개인 글 (git 미추적). 소스별 하위 폴더. 형식: .md/.txt 선호
 sies/
-  corpus.py      # 로딩·Notion 메타 파싱·타임스탬프 결정(내용→파일명→mtime)
+  corpus.py      # 로딩(.md/.txt/.pdf/.hwp)·Notion 메타 파싱·타임스탬프(내용→파일명→mtime)
   chunk.py       # 문단 단위 청킹
   embed.py       # 임베딩 백엔드 (기본 kure / bge-m3 / minilm)
   store.py       # sqlite-vec 저장·KNN 검색

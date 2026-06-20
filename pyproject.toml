@@ -9,6 +9,9 @@ dependencies = [
     "sqlite-vec>=0.1.6",
     "numpy>=1.26",
     "python-frontmatter>=1.1",
+    "pypdf>=6.13.3",
+    "pyhwp>=0.1b15",
+    "six>=1.17.0",
 ]
 
 # CPU 전용 torch (WSL, GPU 없음 가정) — CUDA 휠(수 GB) 대신 CPU 휠을 받는다
