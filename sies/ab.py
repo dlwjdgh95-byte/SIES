@@ -15,6 +15,7 @@ import argparse
 import datetime as dt
 import json
 import random
+import re
 from pathlib import Path
 
 from .embed import DEFAULT_MODEL, MODELS, get_embedder
@@ -87,8 +88,21 @@ def _union_candidates(record: dict) -> list[dict]:
     return union
 
 
+_SENT_END = re.compile(r"[.!?…]['\"”’)\]]?\s")
+
+
 def _preview(text: str, n: int = 110) -> str:
-    return " ".join(text.split())[:n]
+    """공백 정규화 후 n자 근처에서 *문장 경계*로 자른다(중간 절단 방지)."""
+    t = " ".join(text.split())
+    if len(t) <= n:
+        return t
+    ends = [m.end() for m in _SENT_END.finditer(t + " ")]
+    before = [e for e in ends if e <= n]
+    if before:                       # n 이내 마지막 문장 끝
+        return t[: before[-1]].rstrip()
+    if ends:                         # 첫 문장이 n보다 길면 그 문장까지 통째로
+        return t[: ends[0]].rstrip()
+    return t[:n].rsplit(" ", 1)[0] + "…"  # 문장부호가 없으면 단어 경계
 
 
 def judge_interactive(record: dict, text_by_id: dict[int, str]) -> None:
