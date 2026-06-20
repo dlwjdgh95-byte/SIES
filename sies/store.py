@@ -95,7 +95,7 @@ def search(
     table = _vec_table(alias)
     rows = conn.execute(
         f"""
-        SELECT c.id, c.title, c.source, c.timestamp, c.chunk_index, c.text, v.distance
+        SELECT c.id, c.doc_path, c.title, c.source, c.timestamp, c.chunk_index, c.text, v.distance
         FROM {table} v
         JOIN chunks c ON c.id = v.rowid
         WHERE v.embedding MATCH ? AND k = ?
@@ -103,5 +103,5 @@ def search(
         """,
         (query_vec.astype(np.float32).tobytes(), k),
     ).fetchall()
-    cols = ["id", "title", "source", "timestamp", "chunk_index", "text", "distance"]
+    cols = ["id", "doc_path", "title", "source", "timestamp", "chunk_index", "text", "distance"]
     return [dict(zip(cols, r)) for r in rows]

@@ -40,6 +40,9 @@ def _brief(scored, inverted: bool) -> dict:
     }
     if inverted:
         d["activity"] = round(scored.activity, 4)
+        d["activity_time"] = round(scored.activity_time, 4)
+        d["activity_vol"] = round(scored.activity_vol, 4)
+        d["volume"] = scored.volume
         d["score"] = round(scored.score, 4)
         d["band_weight"] = round(scored.band_weight, 4)
     return d

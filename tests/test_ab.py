@@ -14,7 +14,8 @@ def _scored(cid, title, sim, score=0.0, activity=0.5, band_weight=1.0):
         "text": f"본문 {cid}",
     }
     return SimpleNamespace(
-        candidate=cand, similarity=sim, score=score, activity=activity, band_weight=band_weight
+        candidate=cand, similarity=sim, score=score, activity=activity,
+        activity_time=activity, activity_vol=1.0, volume=0, band_weight=band_weight,
     )
 
 

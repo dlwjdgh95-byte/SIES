@@ -3,7 +3,11 @@
     점수 = 관련성 × (1 − 활성도) × 밴드패스가중치
 
 - 관련성: 질의-청크 코사인 유사도 (벡터 거리에서 환산)
-- 활성도: 시간 감쇠(최근일수록 1). (1−활성도) = '잊힌 정도'를 가중
+- 활성도: 두 축의 min — 더 잊힌 쪽을 택한다.
+    A_time = 0.5^(나이/H_time)   물리적으로 오래됨
+    A_vol  = 0.5^(V/H_vol)       뒤에 새 글 V편이 덮음 (몰아쓰기 보정)
+    A_final = min(A_time, A_vol),  가중치 = 1 − A_final = max(W_time, W_vol)
+  "오래됐거나 OR 뒤에 많이 덮였거나 둘 중 하나만 충족해도 잊힌 것으로 인정."
 - 밴드패스: 유사도 상위(뻔함)·하위(잡음)를 누르고 60~85 퍼센타일 부근만 살린다.
   하드 0/1 마스크는 경계에서 0.001 차이로 글이 증발하는 절벽이 있어,
   이중 시그모이드로 매끄럽게 만든다(soft bandpass):
@@ -19,8 +23,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-# 활성도 기본 반감기(일). 이 일수만큼 지나면 활성도 0.5.
+# 활성도 기본 반감기(일). 이 일수만큼 지나면 시간 활성도 0.5.
 DEFAULT_HALF_LIFE = 365.0
+# 볼륨 반감기(편). 뒤에 이만큼 새 글이 덮이면 볼륨 활성도 0.5.
+DEFAULT_VOLUME_HALF_LIFE = 50.0
 # 밴드패스 통과 구간(퍼센타일)
 BAND_LO = 60.0
 BAND_HI = 85.0
@@ -42,6 +48,29 @@ def activity(ts: dt.date | None, now: dt.date, half_life_days: float = DEFAULT_H
         return MISSING_ACTIVITY
     age_days = max((now - ts).days, 0)
     return float(0.5 ** (age_days / half_life_days))
+
+
+def volume_activity(newer_count: int, half_life: float = DEFAULT_VOLUME_HALF_LIFE) -> float:
+    """볼륨 감쇠 활성도 ∈ (0,1]. 뒤에 덮인 글이 없으면 1, 많을수록 0에 수렴."""
+    return float(0.5 ** (max(newer_count, 0) / half_life))
+
+
+def newer_counts(candidates: list[dict]) -> dict:
+    """문서별로 '자기보다 날짜가 새로운 문서 수'를 센다. 몰아쓰기(볼륨) 축의 V.
+
+    문서 식별자는 doc_path(없으면 title). 날짜 없는 문서는 V=0(안 덮임)으로 둔다.
+    한계: 날짜 단위 해상도라 *같은 날* 몰아쓴 글끼리는 서로 안 덮인 것(V 동률)으로 본다.
+    여러 날에 걸친 버스트는 정상 포착. 같은 날 해소가 필요하면 datetime 정밀도가 있어야 한다.
+    """
+    doc_date: dict = {}
+    for c in candidates:
+        key = c.get("doc_path") or c.get("title")
+        doc_date[key] = _parse_ts(c.get("timestamp"))
+    dated = [d for d in doc_date.values() if d is not None]
+    counts: dict = {}
+    for key, d in doc_date.items():
+        counts[key] = 0 if d is None else sum(1 for o in dated if o > d)
+    return counts
 
 
 def _sigmoid(z: np.ndarray) -> np.ndarray:
@@ -106,9 +135,12 @@ def _parse_ts(s: str | None) -> dt.date | None:
 class Scored:
     candidate: dict      # store.search가 돌려준 원본 행
     similarity: float
-    activity: float
+    activity: float      # 최종 = min(시간, 볼륨)
     band_weight: float   # 소프트 밴드패스 가중치 ∈ [0,1]
     score: float
+    activity_time: float = float("nan")
+    activity_vol: float = float("nan")
+    volume: int = 0
 
 
 def rank_inverted(
@@ -118,20 +150,26 @@ def rank_inverted(
     lo: float = BAND_LO,
     hi: float = BAND_HI,
     k: float = BAND_K,
+    volume_half_life: float = DEFAULT_VOLUME_HALF_LIFE,
 ) -> list[Scored]:
-    """후보(각 dict에 'distance','timestamp')에 역전 점수를 매겨 내림차순 정렬.
+    """후보(각 dict에 'distance','timestamp','doc_path')에 역전 점수를 매겨 내림차순 정렬.
 
-    밴드 밖 후보는 가중치가 ~0이라 점수도 ~0 → 자연히 뒤로 밀린다.
+    활성도 = min(시간, 볼륨). 밴드 밖 후보는 가중치 ~0이라 점수 ~0 → 뒤로 밀린다.
     """
     if not candidates:
         return []
     sims = np.array([cosine_from_l2(c["distance"]) for c in candidates])
     weights = bandpass_weight(sims, lo, hi, k)
+    counts = newer_counts(candidates)
     out: list[Scored] = []
     for c, sim, w in zip(candidates, sims, weights):
-        act = activity(_parse_ts(c.get("timestamp")), now, half_life_days)
-        score = float(sim * (1.0 - act) * float(w))
-        out.append(Scored(c, float(sim), act, float(w), score))
+        a_time = activity(_parse_ts(c.get("timestamp")), now, half_life_days)
+        vol = counts[c.get("doc_path") or c.get("title")]
+        a_vol = volume_activity(vol, volume_half_life)
+        a_final = min(a_time, a_vol)
+        score = float(sim * (1.0 - a_final) * float(w))
+        out.append(Scored(c, float(sim), a_final, float(w), score,
+                          activity_time=a_time, activity_vol=a_vol, volume=vol))
     out.sort(key=lambda s: s.score, reverse=True)
     return out
 

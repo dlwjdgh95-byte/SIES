@@ -9,8 +9,10 @@ from sies.rank import (
     bandpass_weight,
     cosine_from_l2,
     double_sigmoid,
+    newer_counts,
     rank_baseline,
     rank_inverted,
+    volume_activity,
 )
 
 NOW = dt.date(2026, 6, 20)
@@ -137,11 +139,59 @@ def test_bandpass_weight_empty():
     assert bandpass_weight(np.array([])).tolist() == []
 
 
+# ── volume_activity / newer_counts ───────────────────────────
+def test_volume_activity_no_burial_is_one():
+    assert volume_activity(0) == 1.0
+
+
+def test_volume_activity_one_half_life():
+    assert volume_activity(50, half_life=50) == 0.5
+
+
+def test_volume_activity_two_half_lives():
+    assert volume_activity(100, half_life=50) == 0.25
+
+
+def test_newer_counts_basic():
+    cands = [
+        _cand(0.7, "2022-01-01", doc="c"),
+        _cand(0.7, "2020-01-01", doc="a"),
+        _cand(0.7, "2021-01-01", doc="b"),
+    ]
+    counts = newer_counts(cands)
+    assert counts["a"] == 2  # b,c 가 더 새로움
+    assert counts["b"] == 1  # c
+    assert counts["c"] == 0  # 가장 새로움
+
+
+def test_newer_counts_dedupes_chunks_per_doc():
+    # 같은 문서의 청크 2개는 한 문서로 센다
+    cands = [
+        _cand(0.7, "2020-01-01", doc="a"),
+        _cand(0.6, "2020-01-01", doc="a"),
+        _cand(0.7, "2021-01-01", doc="b"),
+    ]
+    counts = newer_counts(cands)
+    assert counts["a"] == 1  # b 하나만 더 새로움 (a의 두 청크는 한 문서)
+
+
+def test_newer_counts_missing_date_not_buried():
+    cands = [_cand(0.7, "", doc="a"), _cand(0.7, "2021-01-01", doc="b")]
+    counts = newer_counts(cands)
+    assert counts["a"] == 0  # 날짜 없으면 안 덮인 것으로
+
+
 # ── rank_inverted ────────────────────────────────────────────
-def _cand(cos, ts):
+def _cand(cos, ts, doc=None):
     """코사인 유사도와 날짜로 후보 dict 생성 (distance 역산)."""
     distance = math.sqrt(max(0.0, 2.0 * (1.0 - cos)))
-    return {"distance": distance, "timestamp": ts, "title": f"t{cos}", "text": "x"}
+    return {
+        "distance": distance,
+        "timestamp": ts,
+        "title": f"t{cos}",
+        "doc_path": doc or f"{cos}@{ts}",
+        "text": "x",
+    }
 
 
 def test_inverted_extremes_get_near_zero_score():
@@ -177,6 +227,37 @@ def test_inverted_sorted_descending():
 
 def test_inverted_empty():
     assert rank_inverted([], NOW) == []
+
+
+def test_inverted_volume_buries_recent_burst():
+    # 몰아쓰기: 6/01~6/10 열 편 — 시간으론 다 최근이지만 볼륨으론 d1이 9편에 덮임
+    cands = [_cand(0.7, f"2026-06-{i:02d}", doc=f"d{i}") for i in range(1, 11)]
+    ranked = rank_inverted(cands, NOW, volume_half_life=2)
+    by = {s.candidate["doc_path"]: s for s in ranked}
+    # 시간 활성도는 다 높음(최근)
+    assert by["d1"].activity_time > 0.9
+    # 그러나 d1은 뒤에 9편 → 볼륨 활성도 낮음 → 최종 = min 이 볼륨 채택
+    assert by["d1"].activity_vol < 0.1
+    assert by["d1"].activity == min(by["d1"].activity_time, by["d1"].activity_vol)
+    assert by["d1"].volume == 9
+    # 가장 최신 d10은 안 덮임 → 볼륨 활성도 1, 최종은 시간이 결정
+    assert by["d10"].activity_vol == 1.0
+    assert by["d10"].activity == by["d10"].activity_time
+
+
+def test_inverted_old_but_newest_uses_time_axis():
+    # 오래됐지만 그 뒤로 아무것도 안 쓴 글: 볼륨=0(A_vol=1)이라 시간축이 최종을 결정
+    cands = [
+        _cand(0.7, "2020-01-01", doc="old_newest"),  # 가장 오래됐고 = 가장 최신(뒤에 없음)...
+        _cand(0.7, "2019-01-01", doc="older"),
+    ]
+    ranked = rank_inverted(cands, NOW, half_life_days=365, volume_half_life=2)
+    by = {s.candidate["doc_path"]: s for s in ranked}
+    # old_newest: 뒤에 덮인 게 없음 → 볼륨활성도 1, 최종 = 시간활성도(오래돼 낮음)
+    assert by["old_newest"].volume == 0
+    assert by["old_newest"].activity_vol == 1.0
+    assert by["old_newest"].activity == by["old_newest"].activity_time
+    assert by["old_newest"].activity < 0.1  # 6년 전 → 시간상 충분히 잊힘
 
 
 # ── rank_baseline ────────────────────────────────────────────
