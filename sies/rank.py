@@ -7,8 +7,8 @@
 - 밴드패스: 유사도 상위(뻔함)·하위(잡음)를 누르고 60~85 퍼센타일 부근만 살린다.
   하드 0/1 마스크는 경계에서 0.001 차이로 글이 증발하는 절벽이 있어,
   이중 시그모이드로 매끄럽게 만든다(soft bandpass):
-      Mask(x) = σ(k(x − L)) − σ(k(x − U))
-  L=P60 값, U=P85 값. 경계에서 ~0.5를 지나고 밴드 한참 밖이면 ~0.
+      Mask(x) = σ(k(x − L)) − σ(k(x − U))   (중앙 피크로 정규화)
+  L=P60 값, U=P85 값. 밴드 중앙=1, 경계에서 ~0.5, 밴드 한참 밖이면 ~0.
 
 의도: "뻔한 1위"도 "관련 없는 잡음"도 아닌, *적당히 관련되면서 오래 잊힌* 글을 끌어올린다.
 """
@@ -68,17 +68,29 @@ def double_sigmoid(
 
 
 def bandpass_weight(
-    sims: np.ndarray, lo: float = BAND_LO, hi: float = BAND_HI, k: float = BAND_K
+    sims: np.ndarray,
+    lo: float = BAND_LO,
+    hi: float = BAND_HI,
+    k: float = BAND_K,
+    normalize: bool = True,
 ) -> np.ndarray:
     """유사도 분포의 [lo,hi] 퍼센타일을 L,U로 잡아 소프트 밴드 가중치를 매긴다.
 
+    L,U는 매 질의 분포에서 np.percentile로 뽑은 *유사도 값*(순위가 아니라 값).
+    normalize=True면 곡선 최대값(대칭이라 중앙 (L+U)/2)으로 나눠 밴드 중앙 = 1로 맞춘다.
+    좁은 밴드 + 큰 k로 두 시그모이드가 겹쳐 피크가 1에 못 미치는 것을 보정한다.
     후보가 1개면 분포가 없으므로 가중치 1로 통과시킨다.
     """
     sims = np.asarray(sims, dtype=float)
     if sims.size <= 1:
         return np.ones_like(sims, dtype=float)
     lo_val, hi_val = np.percentile(sims, [lo, hi])
-    return double_sigmoid(sims, lo_val, hi_val, k)
+    w = double_sigmoid(sims, lo_val, hi_val, k)
+    if normalize:
+        peak = float(double_sigmoid((lo_val + hi_val) / 2.0, lo_val, hi_val, k))
+        if peak > 1e-9:
+            w = w / peak
+    return w
 
 
 def _parse_ts(s: str | None) -> dt.date | None:

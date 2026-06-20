@@ -105,6 +105,23 @@ def test_bandpass_weight_drops_top_and_bottom():
     assert w[sims.tolist().index(70)] > 0.4     # 밴드 안 살아남음
 
 
+def test_bandpass_weight_peak_normalized_to_one():
+    # 밴드 중앙 부근 후보는 정규화로 가중치 ~1, 절대 1을 넘지 않는다
+    sims = np.array([0.0, 0.40, 0.45, 0.50, 0.55, 0.60, 1.0])
+    w = bandpass_weight(sims)
+    assert w.max() <= 1.0 + 1e-9
+    assert w.max() > 0.95
+
+
+def test_bandpass_weight_normalize_off_keeps_raw_peak():
+    # 좁은 밴드 + k=50이면 정규화 끄면 피크가 1에 못 미친다(겹침)
+    sims = np.array([0.40, 0.444, 0.47, 0.497, 0.55])
+    raw = bandpass_weight(sims, normalize=False)
+    norm = bandpass_weight(sims, normalize=True)
+    assert raw.max() < 0.95          # 정규화 전엔 피크<1
+    assert abs(norm.max() - 1.0) < 0.05  # 정규화 후 피크~1
+
+
 def test_bandpass_weight_is_continuous():
     # 하드 마스크와 달리 0/1 이분이 아니라 연속값을 돌려준다
     sims = np.linspace(0, 1, 50)
