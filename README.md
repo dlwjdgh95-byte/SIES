@@ -5,11 +5,15 @@
 
 전체 설계와 단계별 로드맵은 [`PLAN.md`](PLAN.md) 참고.
 
-## 현재 상태 — Phase 0 (파이프라인 증명)
+## 현재 상태 — Phase 1 (역전 재순위)
 
-코퍼스 → 청킹 → 한국어 임베딩 → sqlite-vec 저장 → 의미검색까지 도는 토대.
-지금은 **파이프라인이 한국어로 "그럴듯하게" 작동하는지** 증명하는 단계.
-역전 재순위(활성도·밴드패스)는 Phase 1, 코퍼스가 커진 뒤 시작.
+코퍼스 → 청킹 → 한국어 임베딩 → sqlite-vec 저장 → 의미검색 위에,
+**역전 재순위**(`점수 = 관련성 × (1−활성도) × 밴드패스`)를 얹어
+*적당히 관련되면서 오래 잊힌* 글을 끌어올린다. 검색 점수는 순수 결정론적 산수 —
+**LLM은 검색 결정에 절대 닿지 않는다(원칙 2).**
+
+킬 테스트: A/B 하니스로 베이스라인 vs 역전을 블라인드 판정해 로그에 쌓고,
+역전의 적중률이 베이스라인을 이기는지 본다(`sies.stats`).
 
 ## 설치
 
@@ -29,16 +33,22 @@ uv run python -m sies.corpus corpus
 uv run python -m sies.index
 uv run python -m sies.index --model bge-m3   # 비교용 베이스라인
 
-# 3) 의미검색 (베이스라인: 순수 유사도, 기본 KURE)
+# 3) 의미검색 — 베이스라인(순수 유사도) 또는 역전 재순위
 uv run python -m sies.search "할머니에 대한 기억"
+uv run python -m sies.search "관성에 대하여" --invert            # 잊힌 글 끌어올리기
+uv run python -m sies.search "관성에 대하여" --invert --half-life 180
 
-# 4) 모델 비교 벤치 — 같은 질의를 여러 모델에 나란히
+# 4) A/B 하니스 — 베이스라인 vs 역전, 블라인드 판정 + 로그 (킬 테스트)
+uv run python -m sies.ab "관성에 대하여" --judge
+uv run python -m sies.stats                                     # 누적 적중률 집계
+
+# 5) 모델 비교 벤치 — 같은 질의를 여러 모델에 나란히
 uv run python -m sies.bench --models kure bge-m3
 ```
 
 ## 테스트
 
-임베딩 모델 없이 도는 단위 테스트 (corpus 파싱·청킹·sqlite-vec 왕복):
+임베딩 모델 없이 도는 단위 테스트 (corpus 파싱·청킹·sqlite-vec 왕복·역전 산수·A/B 집계):
 
 ```bash
 uv run pytest
@@ -53,10 +63,15 @@ sies/
   chunk.py       # 문단 단위 청킹
   embed.py       # 임베딩 백엔드 (기본 kure / bge-m3 / minilm)
   store.py       # sqlite-vec 저장·KNN 검색
+  retrieve.py    # 질의 임베딩 + 전체 후보 풀 조회 (밴드패스용)
+  rank.py        # ★ 역전 재순위 — 활성도·밴드패스·점수 (제품의 뇌, ML 없음)
   index.py       # 인덱싱 CLI
-  search.py      # 검색 CLI (베이스라인)
-  bench.py       # Phase 0 모델 비교
+  search.py      # 검색 CLI (베이스라인 / --invert 역전)
+  ab.py          # A/B 하니스 — 블라인드 판정 + JSONL 로그
+  stats.py       # A/B 로그 적중률 집계 (킬 테스트 판정)
+  bench.py       # 모델 비교
 sies.db          # sqlite-vec DB (git 미추적)
+search_log.jsonl # A/B 판정 로그 (git 미추적)
 ```
 
 ## 원칙 (PLAN에서)

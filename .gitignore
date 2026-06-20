@@ -10,6 +10,8 @@ corpus/**
 *.db
 *.sqlite
 *.sqlite3
+*.jsonl
+search_log.jsonl
 embeddings/
 .cache/
 __pycache__/

@@ -84,6 +84,10 @@ def store_embeddings(
     conn.commit()
 
 
+def count_chunks(conn: sqlite3.Connection) -> int:
+    return conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+
+
 def search(
     conn: sqlite3.Connection, alias: str, query_vec: np.ndarray, k: int = 10
 ) -> list[dict]:
