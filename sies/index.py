@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .chunk import chunk_document
 from .corpus import iter_corpus
+from .dedup import DEFAULT_DEDUP_THRESHOLD, dedup_chunks
 from .embed import DEFAULT_MODEL, MODELS, get_embedder
 from .store import (
     connect,
@@ -26,6 +27,9 @@ def main() -> None:
     ap.add_argument("--model", default=DEFAULT_MODEL, choices=list(MODELS))
     ap.add_argument("--corpus", default="corpus")
     ap.add_argument("--db", default="sies.db")
+    ap.add_argument("--dedup-threshold", type=float, default=DEFAULT_DEDUP_THRESHOLD,
+                    help="이 코사인 이상이면 근접 중복으로 보고 하나만 남긴다")
+    ap.add_argument("--no-dedup", action="store_true", help="중복 제거 끄기")
     args = ap.parse_args()
 
     docs = iter_corpus(Path(args.corpus))
@@ -40,6 +44,16 @@ def main() -> None:
     print(f"  차원={emb.dim}")
 
     vecs = emb.encode([c.text for c in chunks])
+
+    if not args.no_dedup:
+        before = len(chunks)
+        chunks, vecs, dropped = dedup_chunks(chunks, vecs, args.dedup_threshold)
+        if dropped:
+            print(f"\n근접 중복 {len(dropped)}개 제거 (임계 {args.dedup_threshold}):")
+            for d, keep, sim in dropped:
+                print(f"  - 버림 [{d.title}] idx{d.chunk_index}"
+                      f"  ≈  정본 [{keep.title}] idx{keep.chunk_index}  (cos {sim:.3f})")
+        print(f"청크 {before} → {len(chunks)} (중복 {len(dropped)} 제거)\n")
 
     conn = connect(args.db)
     init_schema(conn)
