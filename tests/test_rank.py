@@ -295,3 +295,51 @@ def test_gated_penalizes_recent():
 
 def test_gated_empty():
     assert rank_gated([], NOW) == []
+
+
+# ── 모달리티 무관 계약 (candidate.Candidate) ──────────────────
+def _img_cand(cos, ts, doc=None):
+    """이미지 모달리티를 흉내낸 후보 — text 키가 없고 media_ref를 든다."""
+    distance = math.sqrt(max(0.0, 2.0 * (1.0 - cos)))
+    return {
+        "distance": distance,
+        "timestamp": ts,
+        "title": f"t{cos}",
+        "doc_path": doc or f"{cos}@{ts}",
+        "media_ref": "corpus/img/x.png",  # text 대신: 랭커는 어차피 안 봄
+    }
+
+
+def _scores_by_doc(ranked):
+    return {s.candidate["doc_path"]: round(s.score, 9) for s in ranked}
+
+
+def test_ranker_ignores_modality():
+    # 같은 (distance, timestamp, doc)면 텍스트든 이미지든 점수가 완전히 동일해야 한다.
+    # = 제품의 뇌(rank.py)는 내용/모달리티에 의존하지 않는다(원칙 2).
+    specs = [(0.95, "2025-01-01", "a"), (0.70, "2024-06-01", "b"),
+             (0.68, "2024-06-01", "c"), (0.40, "2025-01-01", "d")]
+    text_pool = [_cand(c, ts, doc=doc) for c, ts, doc in specs]
+    img_pool = [_img_cand(c, ts, doc=doc) for c, ts, doc in specs]
+
+    assert _scores_by_doc(rank_inverted(text_pool, NOW)) == _scores_by_doc(rank_inverted(img_pool, NOW))
+    assert _scores_by_doc(rank_gated(text_pool, NOW)) == _scores_by_doc(rank_gated(img_pool, NOW))
+    assert _scores_by_doc(rank_baseline(text_pool)) == _scores_by_doc(rank_baseline(img_pool))
+    # 이미지 후보엔 text 키가 아예 없다 — 그래도 랭커가 멀쩡히 점수를 매겼다.
+    assert all("text" not in c for c in img_pool)
+
+
+def test_mixed_modality_pool_ranks_by_score():
+    # 텍스트 후보와 이미지 후보를 한 풀로 합쳐도 출처와 무관하게 점수순으로만 정렬된다.
+    # = 미래에 모달리티별 임베딩이 각자 후보를 내놔도 하나의 랭커로 합칠 수 있다.
+    pool = [
+        _cand(0.70, "2024-06-01", doc="text_old"),        # 밴드 안 + 오래됨 → 높음
+        _img_cand(0.70, "2026-06-01", doc="img_recent"),  # 밴드 안 + 최근 → 낮음
+        _cand(0.95, "2025-01-01", doc="text_top"),        # 밴드 밖(상위) → ~0
+        _img_cand(0.40, "2025-01-01", doc="img_bottom"),  # 밴드 밖(하위) → ~0
+    ]
+    ranked = rank_inverted(pool, NOW, half_life_days=365)
+    scores = [s.score for s in ranked]
+    assert scores == sorted(scores, reverse=True)
+    # 밴드 안 + 더 오래된 텍스트가 최상위 — 출처(텍스트/이미지)는 순위에 영향 없음.
+    assert ranked[0].candidate["doc_path"] == "text_old"

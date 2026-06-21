@@ -6,6 +6,10 @@ corpus/**
 !corpus/**/.gitkeep
 !corpus/README.md
 
+# 마이그레이션 번들 — 개인 코퍼스 포함, 절대 커밋 금지 (public repo)
+sies-migrate.tar.gz
+*.tar.gz
+
 # 생성물 / 캐시
 *.db
 *.sqlite

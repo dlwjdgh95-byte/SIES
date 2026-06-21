@@ -15,6 +15,11 @@
   L=P60 값, U=P85 값. 밴드 중앙=1, 경계에서 ~0.5, 밴드 한참 밖이면 ~0.
 
 의도: "뻔한 1위"도 "관련 없는 잡음"도 아닌, *적당히 관련되면서 오래 잊힌* 글을 끌어올린다.
+
+입력 계약(modality-agnostic): 이 모듈은 후보의 내용(text)이나 모달리티를 전혀 보지 않는다.
+오직 distance(정규화 임베딩의 벡터 거리)·timestamp(날짜)·문서 정체성(doc_path/title)만 쓴다.
+그래서 텍스트든 이미지든 비디오든 같은 형태(candidate.Candidate)로 들어오면 그대로 점수가 매겨진다.
+distance는 반드시 정규화된 임베딩(코사인 공간)에서 와야 한다. 자세한 계약: sies/candidate.py.
 """
 from __future__ import annotations
 
@@ -22,6 +27,8 @@ import datetime as dt
 from dataclasses import dataclass
 
 import numpy as np
+
+from .candidate import Candidate
 
 # 활성도 기본 반감기(일). 이 일수만큼 지나면 시간 활성도 0.5.
 DEFAULT_HALF_LIFE = 365.0
@@ -57,7 +64,7 @@ def volume_activity(newer_count: int, half_life: float = DEFAULT_VOLUME_HALF_LIF
     return float(0.5 ** (max(newer_count, 0) / half_life))
 
 
-def newer_counts(candidates: list[dict]) -> dict:
+def newer_counts(candidates: list[Candidate]) -> dict:
     """문서별로 '자기보다 날짜가 새로운 문서 수'를 센다. 몰아쓰기(볼륨) 축의 V.
 
     문서 식별자는 doc_path(없으면 title). 날짜 없는 문서는 V=0(안 덮임)으로 둔다.
@@ -146,7 +153,7 @@ class Scored:
 
 
 def rank_inverted(
-    candidates: list[dict],
+    candidates: list[Candidate],
     now: dt.date,
     half_life_days: float = DEFAULT_HALF_LIFE,
     lo: float = BAND_LO,
@@ -177,7 +184,7 @@ def rank_inverted(
 
 
 def rank_gated(
-    candidates: list[dict],
+    candidates: list[Candidate],
     now: dt.date,
     half_life_days: float = DEFAULT_HALF_LIFE,
     volume_half_life: float = DEFAULT_VOLUME_HALF_LIFE,
@@ -208,7 +215,7 @@ def rank_gated(
     return out
 
 
-def rank_baseline(candidates: list[dict]) -> list[Scored]:
+def rank_baseline(candidates: list[Candidate]) -> list[Scored]:
     """순수 유사도 정렬(거리 오름차순). 비교용 베이스라인."""
     out = [
         Scored(c, cosine_from_l2(c["distance"]), float("nan"), 1.0, cosine_from_l2(c["distance"]))
