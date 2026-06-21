@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import sqlite_vec
 
+from .candidate import Candidate
 from .chunk import Chunk
 
 
@@ -90,8 +91,12 @@ def count_chunks(conn: sqlite3.Connection) -> int:
 
 def search(
     conn: sqlite3.Connection, alias: str, query_vec: np.ndarray, k: int = 10
-) -> list[dict]:
-    """벡터 KNN — 순수 유사도(베이스라인). distance 작을수록 가깝다."""
+) -> list[Candidate]:
+    """벡터 KNN — 순수 유사도(베이스라인). distance 작을수록 가깝다.
+
+    반환 dict는 rank.py의 입력 계약(candidate.Candidate)을 만족한다 — 추가 키
+    (id/text/source/chunk_index)는 랭커가 무시한다.
+    """
     table = _vec_table(alias)
     rows = conn.execute(
         f"""
