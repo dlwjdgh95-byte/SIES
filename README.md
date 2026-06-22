@@ -33,14 +33,16 @@ uv run python -m sies.corpus corpus
 uv run python -m sies.index
 uv run python -m sies.index --model bge-m3   # 비교용 베이스라인
 
-# 3) 의미검색 — 베이스라인(순수 유사도) 또는 역전 재순위
+# 3) 의미검색 — 베이스라인(순수 유사도) 또는 재순위(--invert, 기본 도전자 relz_fv=E)
 uv run python -m sies.search "할머니에 대한 기억"
 uv run python -m sies.search "관성에 대하여" --invert            # 잊힌 글 끌어올리기
-uv run python -m sies.search "관성에 대하여" --invert --half-life 180
+uv run python -m sies.search "관성에 대하여" --invert --ranker gated   # 구 랭커
+uv run python -m sies.search "관성에 대하여" --invert --lam 1.5  # 망각 보너스 강하게
 
-# 4) A/B 하니스 — 베이스라인 vs 역전, 블라인드 판정 + 로그 (킬 테스트)
+# 4) A/B 하니스 — 베이스라인 vs 도전자(기본 relz_fv), 블라인드 판정 + 로그 (킬 테스트)
 uv run python -m sies.ab "관성에 대하여" --judge
 uv run python -m sies.stats                                     # 누적 적중률 집계
+uv run python -m sies.replay                                    # 오프라인 점수식 재실행 비교
 
 # 5) 모델 비교 벤치 — 같은 질의를 여러 모델에 나란히
 uv run python -m sies.bench --models kure bge-m3
@@ -63,8 +65,9 @@ sies/
   chunk.py       # 문단 단위 청킹
   embed.py       # 임베딩 백엔드 (기본 kure / bge-m3 / minilm)
   store.py       # sqlite-vec 저장·KNN 검색
-  retrieve.py    # 질의 임베딩 + 전체 후보 풀 조회 (밴드패스용)
-  rank.py        # ★ 역전 재순위 — 활성도·밴드패스·점수 (제품의 뇌, ML 없음)
+  retrieve.py    # 질의 임베딩 + 전체 후보 풀 조회 (정규화·밴드패스용)
+  rank.py        # ★ 재순위 — 제품의 뇌, ML 없음. 기본 relz_fv(E: rel_z + λ·fv)
+                 #   rel_z=질의내 유사도 z정규화 · fv=비대칭 망각밴드 (구: inverted/gated)
   index.py       # 인덱싱 CLI
   search.py      # 검색 CLI (베이스라인 / --invert 역전)
   ab.py          # A/B 하니스 — 블라인드 판정 + JSONL 로그

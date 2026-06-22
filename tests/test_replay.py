@@ -4,6 +4,7 @@ from sies.replay import (
     f_baseline,
     f_forgotten,
     f_gated,
+    f_relz_fv,
     judged_candidates,
 )
 
@@ -20,11 +21,14 @@ def _c(cid, sim, act=None):
 
 
 def test_formulas_math():
-    assert f_baseline(0.8, 0.9) == 0.8
-    assert abs(f_forgotten(0.8, 0.25) - 0.6) < 1e-9
+    # 점수식은 row dict(sim, act, rel_z)를 받는다.
+    assert f_baseline({"sim": 0.8, "act": 0.9}) == 0.8
+    assert abs(f_forgotten({"sim": 0.8, "act": 0.25}) - 0.6) < 1e-9
     # gated: 저활성(0.2<0.4)은 sim 그대로, 고활성(0.9)은 페널티
-    assert f_gated(0.8, 0.2) == 0.8
-    assert abs(f_gated(0.8, 0.9) - 0.8 * 0.1) < 1e-9
+    assert f_gated({"sim": 0.8, "act": 0.2}) == 0.8
+    assert abs(f_gated({"sim": 0.8, "act": 0.9}) - 0.8 * 0.1) < 1e-9
+    # E: rel_z + λ·fv(act). 피크 활성도(0.35)면 fv=1, λ=1 → rel_z + 1.
+    assert abs(f_relz_fv({"sim": 0.5, "act": 0.35, "rel_z": 1.2}) - 2.2) < 1e-9
 
 
 def test_judged_candidates_filters_and_merges():

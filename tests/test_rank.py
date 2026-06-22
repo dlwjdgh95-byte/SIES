@@ -9,10 +9,12 @@ from sies.rank import (
     bandpass_weight,
     cosine_from_l2,
     double_sigmoid,
+    forgetting_value,
     newer_counts,
     rank_baseline,
     rank_gated,
     rank_inverted,
+    rank_relz_fv,
     volume_activity,
 )
 
@@ -295,3 +297,68 @@ def test_gated_penalizes_recent():
 
 def test_gated_empty():
     assert rank_gated([], NOW) == []
+
+
+# ── forgetting_value (망각가치 밴드) ──────────────────────────
+def test_fv_peak_at_035():
+    assert forgetting_value(0.35) == 1.0
+
+
+def test_fv_recent_excluded():
+    # 거의 최신(A≥0.9)은 0 — '완전 최신만 배제'
+    assert forgetting_value(0.90) == 0.0
+    assert forgetting_value(1.0) == 0.0
+
+
+def test_fv_old_is_gentle_not_zero():
+    # 가장 잊힌 글(A→0)도 0이 아니라 OLD_FLOOR(0.6)까지만 — '옛것엔 관대'
+    assert forgetting_value(0.0) == 0.6
+    assert forgetting_value(0.18) > 0.5
+
+
+def test_fv_asymmetric_left_gentler_than_right():
+    # 피크에서 같은 거리(±0.2)면 옛것 쪽(좌)이 최신 쪽(우)보다 가중치가 높다
+    assert forgetting_value(0.35 - 0.20) > forgetting_value(0.35 + 0.20)
+
+
+# ── rank_relz_fv (전략 E) ────────────────────────────────────
+def test_relz_fv_prefers_mid_forgotten_over_recent():
+    # 유사도 동일 → rel_z 0 → fv가 결정. 중간-망각(피크)이 최신을 이긴다.
+    mid = NOW - dt.timedelta(days=552)   # A_time ≈ 0.35
+    cands = [
+        _cand(0.70, NOW.isoformat(), doc="recent"),      # 최신 → fv ~0
+        _cand(0.70, mid.isoformat(), doc="mid"),         # 중간-망각 → fv ~1
+    ]
+    ranked = rank_relz_fv(cands, NOW, half_life_days=365)
+    assert ranked[0].candidate["doc_path"] == "mid"
+    assert ranked[0].fv > ranked[1].fv
+
+
+def test_relz_fv_relevance_dominates_among_forgotten():
+    # 같은(잊힘) 날짜면 fv 동일 → rel_z(관련성)가 줄세운다.
+    old = (NOW - dt.timedelta(days=552)).isoformat()
+    cands = [
+        _cand(0.50, old, doc="lo"),
+        _cand(0.70, old, doc="hi"),
+        _cand(0.60, old, doc="mid"),
+    ]
+    ranked = rank_relz_fv(cands, NOW, half_life_days=365)
+    assert ranked[0].candidate["doc_path"] == "hi"
+    assert [s.candidate["doc_path"] for s in ranked] == ["hi", "mid", "lo"]
+
+
+def test_relz_fv_records_fv_and_no_band():
+    cands = [_cand(c, "2025-01-01") for c in (0.5, 0.7)]
+    ranked = rank_relz_fv(cands, NOW)
+    assert all(s.fv == s.fv for s in ranked)          # fv 채워짐(NaN 아님)
+    assert all(s.band_weight == 1.0 for s in ranked)  # 유사도 밴드패스 없음
+
+
+def test_relz_fv_sorted_descending():
+    cands = [_cand(c, "2024-06-01") for c in (0.9, 0.8, 0.7, 0.6, 0.5)]
+    scores = [s.score for s in rank_relz_fv(cands, NOW)]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_relz_fv_empty():
+    assert rank_relz_fv([], NOW) == []

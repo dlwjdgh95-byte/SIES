@@ -37,6 +37,17 @@ MISSING_ACTIVITY = 0.5
 # 이 활성도 미만이면 '잊힌' 것으로 본다(gated 랭커의 통과 기준)
 LOW_ACTIVITY = 0.4
 
+# ── 망각가치 밴드 fv(A) — 전략 E(rank_relz_fv) ────────────────────
+# 활성도 단조 페널티(1−A)는 데이터상 *최저활성(노이즈)*을 과대 상향했다.
+# 적중률은 활성도 [0,0.3)<[0.3,0.5)>[0.5,1) — 중간 피크라 밴드가 맞다.
+# 좌우대칭은 가장 잊힌 글(A→0)을 0으로 죽여 '망각 복구' 목적과 모순 →
+# 비대칭: 옛것엔 관대(좌측은 OLD_FLOOR까지만 내려감), 최신만 가파르게 배제.
+FV_OLD_FLOOR = 0.6   # A→0(완전 옛것)에서의 가중치 (가혹하지 않게)
+FV_PEAK = 0.35       # 망각가치 피크 활성도
+FV_HI = 0.90         # 이 활성도 이상(거의 최신)이면 0
+# 망각 보너스 강도 λ — rel_z(표준편차 단위) 대비 fv를 얼마나 얹을지(정밀도↔회수 손잡이)
+DEFAULT_LAMBDA = 1.0
+
 
 def cosine_from_l2(distance: float) -> float:
     """정규화 벡터의 L2 거리 d → 코사인 유사도. d²=2(1−cos). [0,1]로 클램프."""
@@ -124,6 +135,21 @@ def bandpass_weight(
     return w
 
 
+def forgetting_value(
+    a: float, old_floor: float = FV_OLD_FLOOR, peak: float = FV_PEAK, hi: float = FV_HI
+) -> float:
+    """망각가치 가중치 ∈ [0,1]. A=peak에서 1.
+
+    좌측(옛것)은 old_floor까지만 완만히 내려가고, 우측(최신)은 hi에서 0으로 가파르게.
+    "충분히 잊힌 글은 다 환영하되 그 안에선 관련성이 줄세우고, 너무 최신만 배제"한다.
+    """
+    if a <= peak:
+        return old_floor + (1.0 - old_floor) * (a / peak) if peak > 0 else 1.0
+    if a >= hi:
+        return 0.0
+    return 1.0 - (a - peak) / (hi - peak)
+
+
 def _parse_ts(s: str | None) -> dt.date | None:
     if not s:
         return None
@@ -143,6 +169,7 @@ class Scored:
     activity_time: float = float("nan")
     activity_vol: float = float("nan")
     volume: int = 0
+    fv: float = float("nan")  # 망각가치 가중치(rank_relz_fv에서만 채워짐)
 
 
 def rank_inverted(
@@ -204,6 +231,45 @@ def rank_gated(
         score = sim if a_final < low else sim * (1.0 - a_final)
         out.append(Scored(c, sim, a_final, 1.0, float(score),
                           activity_time=a_time, activity_vol=a_vol, volume=vol))
+    out.sort(key=lambda s: s.score, reverse=True)
+    return out
+
+
+def rank_relz_fv(
+    candidates: list[dict],
+    now: dt.date,
+    half_life_days: float = DEFAULT_HALF_LIFE,
+    volume_half_life: float = DEFAULT_VOLUME_HALF_LIFE,
+    lam: float = DEFAULT_LAMBDA,
+) -> list[Scored]:
+    """전략 E — 질의내 정규화 관련성 + 비대칭 망각가치 밴드. (10세션 데이터에서 도출)
+
+        점수 = rel_z + λ·fv(활성도)
+        rel_z = (유사도 − 풀 평균) / 풀 표준편차   # 유사도 스케일이 질의마다 달라 정규화
+        fv    = forgetting_value(활성도)            # 비대칭 밴드(옛것 관대·최신 배제)
+
+    옛 식의 세 약점을 데이터로 교체: 절대 유사도→rel_z, 단조 (1−A)→fv 밴드, 유사도
+    밴드패스(쇼트리스트에서 포화)→제거. band_weight 자리엔 1.0, fv 필드에 가중치 기록.
+    """
+    if not candidates:
+        return []
+    sims = np.array([cosine_from_l2(c["distance"]) for c in candidates])
+    mu = float(sims.mean())
+    sd = float(sims.std())
+    if sd < 1e-9:  # 후보가 1개거나 유사도가 전부 같으면 정규화 불가 → 관련성 항 0
+        sd = 1e-9
+    counts = newer_counts(candidates)
+    out: list[Scored] = []
+    for c, sim in zip(candidates, sims):
+        a_time = activity(_parse_ts(c.get("timestamp")), now, half_life_days)
+        vol = counts[c.get("doc_path") or c.get("title")]
+        a_vol = volume_activity(vol, volume_half_life)
+        a_final = min(a_time, a_vol)
+        fvw = forgetting_value(a_final)
+        rel_z = (float(sim) - mu) / sd
+        score = float(rel_z + lam * fvw)
+        out.append(Scored(c, float(sim), a_final, 1.0, score,
+                          activity_time=a_time, activity_vol=a_vol, volume=vol, fv=fvw))
     out.sort(key=lambda s: s.score, reverse=True)
     return out
 

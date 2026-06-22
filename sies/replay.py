@@ -17,25 +17,32 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics as st
+
+from .rank import DEFAULT_LAMBDA, forgetting_value
 
 LOW_ACTIVITY = 0.4  # 이 미만이면 '잊힌' 것으로 본다(stats와 동일 기준)
 
 
-# 점수식: (유사도, 활성도) -> 점수. 활성도↓ = 더 잊힘.
-def f_baseline(sim: float, act: float) -> float:
-    return sim
+# 점수식: row dict(sim, act, rel_z) -> 점수. 활성도↓ = 더 잊힘.
+def f_baseline(d: dict) -> float:
+    return d["sim"]
 
 
-def f_forgotten(sim: float, act: float) -> float:        # A: 밴드패스 제거
-    return sim * (1.0 - act)
+def f_forgotten(d: dict) -> float:        # A: 밴드패스 제거, 단조 페널티
+    return d["sim"] * (1.0 - d["act"])
 
 
-def f_gated(sim: float, act: float) -> float:            # B: 저활성은 통과, 최근만 페널티
-    return sim if act < LOW_ACTIVITY else sim * (1.0 - act)
+def f_gated(d: dict) -> float:            # B: 저활성은 통과, 최근만 페널티
+    return d["sim"] if d["act"] < LOW_ACTIVITY else d["sim"] * (1.0 - d["act"])
 
 
-def f_mild(sim: float, act: float) -> float:             # C: 약한 잊힘 보상
-    return sim * (1.0 - 0.5 * act)
+def f_mild(d: dict) -> float:             # C: 약한 잊힘 보상
+    return d["sim"] * (1.0 - 0.5 * d["act"])
+
+
+def f_relz_fv(d: dict) -> float:          # E: 질의내 정규화 관련성 + 비대칭 망각밴드
+    return d["rel_z"] + DEFAULT_LAMBDA * forgetting_value(d["act"])
 
 
 FORMULAS = {
@@ -43,11 +50,12 @@ FORMULAS = {
     "A: sim×(1−act)": f_forgotten,
     "B: gated": f_gated,
     "C: mild": f_mild,
+    "E: relz+fv": f_relz_fv,
 }
 
 
 def judged_candidates(record: dict) -> list[dict]:
-    """판정된(hit/miss) 후보를 id로 합쳐 (sim, act, verdict) 리스트로."""
+    """판정된(hit/miss) 후보를 id로 합쳐 (sim, act, rel_z, verdict) 리스트로."""
     by_id: dict[str, dict] = {}
     for c in record["baseline"] + record["inversion"]:
         cid = str(c["id"])
@@ -57,10 +65,18 @@ def judged_candidates(record: dict) -> list[dict]:
         if c.get("activity") is not None:
             d["act"] = c["activity"]
         d["verdict"] = record["verdicts"].get(cid)
-    return [
+    rows = [
         d for d in by_id.values()
         if d.get("verdict") in ("hit", "miss") and "sim" in d and "act" in d
     ]
+    # rel_z: 이 세션 후보집합 안에서 유사도 z정규화(질의간 스케일 차 보정)
+    if rows:
+        sims = [d["sim"] for d in rows]
+        mu = st.mean(sims)
+        sd = st.pstdev(sims) or 1e-9
+        for d in rows:
+            d["rel_z"] = (d["sim"] - mu) / sd
+    return rows
 
 
 def evaluate(records: list[dict], formulas: dict, k: int = 5) -> dict:
@@ -73,7 +89,7 @@ def evaluate(records: list[dict], formulas: dict, k: int = 5) -> dict:
             continue
         sessions += 1
         for name, fn in formulas.items():
-            ranked = sorted(cands, key=lambda d: fn(d["sim"], d["act"]), reverse=True)
+            ranked = sorted(cands, key=fn, reverse=True)
             top = ranked[:k]
             hits = sum(1 for d in top if d["verdict"] == "hit")
             out[name]["micro"][0] += hits
@@ -105,7 +121,8 @@ def main() -> None:
         micro = agg["micro"][0] / agg["micro"][1] if agg["micro"][1] else None
         macro = sum(agg["macro"]) / len(agg["macro"]) if agg["macro"] else None
         print(f"{name:<16}{_fmt(micro):>10}{_fmt(macro):>10}")
-    print("\n(같은 후보집합 위 랭킹 비교 — 표본 작으면 경향만. 밴드패스 계열은 풀 분포가 없어 제외.)")
+    print("\n(같은 후보집합 위 랭킹 비교 — 표본 작으면 경향만. rel_z는 세션내 정규화로 재현 가능,"
+          " 유사도 밴드패스만 풀 분포가 없어 제외.)")
 
 
 if __name__ == "__main__":

@@ -19,7 +19,14 @@ import re
 from pathlib import Path
 
 from .embed import DEFAULT_MODEL, MODELS, get_embedder
-from .rank import DEFAULT_HALF_LIFE, rank_baseline, rank_gated, rank_inverted
+from .rank import (
+    DEFAULT_HALF_LIFE,
+    DEFAULT_LAMBDA,
+    rank_baseline,
+    rank_gated,
+    rank_inverted,
+    rank_relz_fv,
+)
 from .retrieve import candidate_pool
 from .store import connect
 
@@ -49,6 +56,9 @@ def _brief(scored, inverted: bool, activity: float | None = None) -> dict:
         d["volume"] = scored.volume
         d["score"] = round(scored.score, 4)
         d["band_weight"] = round(scored.band_weight, 4)
+        fv = getattr(scored, "fv", float("nan"))
+        if fv == fv:  # NaN 제외 — relz_fv 도전자만 fv를 채운다
+            d["fv"] = round(fv, 4)
     return d
 
 
@@ -132,7 +142,8 @@ def _print_side_by_side(record: dict) -> None:
     for i, c in enumerate(record["baseline"], 1):
         print(f"{i:>2}. 유사도 {c['similarity']:.3f} [{c['title']}] {c['timestamp']}")
     label = {"gated": "게이팅 B(저활성=유사도, 그 외 ×(1−활성도))",
-             "inverted": "역전(관련성 × (1−활성도) × 밴드패스)"}.get(record.get("ranker", "inverted"))
+             "inverted": "역전(관련성 × (1−활성도) × 밴드패스)",
+             "relz_fv": "E(관련성 z정규화 + λ·망각밴드 fv)"}.get(record.get("ranker", "inverted"))
     print(f"\n── {label} ──")
     for i, c in enumerate(record["inversion"], 1):
         print(f"{i:>2}. 점수 {c['score']:.3f} (유사도 {c['similarity']:.3f} · 활성도 {c['activity']:.2f}) "
@@ -147,8 +158,10 @@ def main() -> None:
     ap.add_argument("--log", default=DEFAULT_LOG)
     ap.add_argument("-k", type=int, default=5)
     ap.add_argument("--half-life", type=float, default=DEFAULT_HALF_LIFE)
-    ap.add_argument("--ranker", choices=["gated", "inverted"], default="gated",
-                    help="도전자 랭커: gated(B) 또는 inverted(밴드패스 역전)")
+    ap.add_argument("--ranker", choices=["relz_fv", "gated", "inverted"], default="relz_fv",
+                    help="도전자 랭커: relz_fv(E, 기본) / gated(B) / inverted(밴드패스 역전)")
+    ap.add_argument("--lam", type=float, default=DEFAULT_LAMBDA,
+                    help="relz_fv의 망각 보너스 강도 λ (정밀도↔회수)")
     ap.add_argument("--judge", action="store_true", help="블라인드 적중/헛것 판정")
     args = ap.parse_args()
 
@@ -159,7 +172,9 @@ def main() -> None:
     conn.close()
 
     baseline = rank_baseline(pool)
-    if args.ranker == "gated":
+    if args.ranker == "relz_fv":
+        challenger = rank_relz_fv(pool, dt.date.today(), args.half_life, lam=args.lam)
+    elif args.ranker == "gated":
         challenger = rank_gated(pool, dt.date.today(), args.half_life)
     else:
         challenger = rank_inverted(pool, dt.date.today(), args.half_life)
