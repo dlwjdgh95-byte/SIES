@@ -7,6 +7,7 @@ sitelink 총수가 문턱값 이상인 사람만 남긴다 — "한때 실제로
 """
 from __future__ import annotations
 
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -140,6 +141,19 @@ def _title_from_article_url(url: str | None) -> str | None:
     return unquote(url.rsplit("/wiki/", 1)[-1])
 
 
+def _parse_birth_year(raw: str | None) -> int | None:
+    """wdt:P569 값에서 연도만 뽑는다.
+
+    보통은 ISO 날짜 리터럴("1809-02-12T00:00:00Z")이지만 두 가지 예외가 있다:
+      - Wikidata 'unknown value'(생년 미상)는 날짜가 아니라 URI("http://…/genid/…")로 온다.
+      - 기원전은 선행 '-'가 붙는다("-0044-03-15" = BCE 44).
+    앞머리의 (선택적 '-')+숫자만 정규식으로 집어, URI 같은 비날짜 값은 조용히 None 처리한다."""
+    if not raw:
+        return None
+    m = re.match(r"-?\d{1,4}", raw)
+    return int(m.group()) if m else None
+
+
 def _fetch_one(
     qid: str,
     occupation_label: str,
@@ -158,8 +172,7 @@ def _fetch_one(
         if sitelinks < min_sitelinks:
             continue
         qid = b["person"]["value"].rsplit("/", 1)[-1]
-        birth_raw = b.get("birth", {}).get("value")
-        birth_year = int(birth_raw[:4]) if birth_raw else None
+        birth_year = _parse_birth_year(b.get("birth", {}).get("value"))
         out.append(
             Candidate(
                 qid=qid,
