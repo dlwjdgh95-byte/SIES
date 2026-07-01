@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from people.pageviews import fetch_pageviews
-from people.score import PersonScore, score_candidates
+from people.score import MAX_ACTIVITY, PersonScore, score_candidates
 from people.trends import fetch_trend_signal
 from people.wikidata import DEFAULT_MIN_SITELINKS, OCCUPATION_QIDS, fetch_candidates
 
@@ -41,6 +41,9 @@ def _to_json(scores: list[PersonScore]) -> list[dict]:
                 "peak_views": s.peak_views,
                 "peak_month": s.peak_month,
                 "activity": s.person_activity,
+                "activity_time": s.activity_time,
+                "activity_now": s.activity_now,
+                "recent_monthly_views": s.recent_views,
                 "band_weight": s.band_weight,
                 "trend_signal": s.trend_signal,
                 "wiki_en": _wiki_url("en", c.enwiki_title),
@@ -56,6 +59,8 @@ def main() -> None:
                      choices=[*OCCUPATION_QIDS.keys(), "all"])
     ap.add_argument("--limit", type=int, default=50, help="후보 풀 상한(SPARQL LIMIT)")
     ap.add_argument("--min-sitelinks", type=int, default=DEFAULT_MIN_SITELINKS)
+    ap.add_argument("--max-activity", type=float, default=MAX_ACTIVITY,
+                     help="이 활성도 이상(아직 활발)인 후보 제외. 1.01 이상이면 사실상 게이트 해제")
     ap.add_argument("--refresh", action="store_true", help="pageviews 캐시 무시하고 재요청")
     ap.add_argument("--with-trends", action="store_true",
                      help="Google Trends 부가 신호도 조회(느리고 불안정 — 기본 꺼짐)")
@@ -81,7 +86,9 @@ def main() -> None:
         }
 
     print("[3/3] 스코어링...")
-    ranked = score_candidates(series_by_qid, candidates, dt.date.today(), trend_signals=trend_signals)
+    ranked = score_candidates(series_by_qid, candidates, dt.date.today(),
+                              trend_signals=trend_signals, max_activity=args.max_activity)
+    print(f"  → 활성도 게이트(<{args.max_activity}) 통과 {len(ranked)}명 / 후보 {len(candidates)}명")
 
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -97,7 +104,8 @@ def main() -> None:
         link = _wiki_url("ko", c.kowiki_title) or _wiki_url("en", c.enwiki_title)
         print(
             f"{i:>2}. 점수 {s.score:.1f} (정점저명 {s.peak_prominence:.2f} · "
-            f"활성도 {s.person_activity:.2f} · 밴드 {s.band_weight:.2f}) "
+            f"활성도 {s.person_activity:.2f}[시간{s.activity_time:.2f}/현재{s.activity_now:.2f}] · "
+            f"밴드 {s.band_weight:.2f} · 최근 {s.recent_views:,.0f}/월) "
             f"{name} [{s.peak_month}] {link}"
         )
 
