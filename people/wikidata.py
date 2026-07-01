@@ -7,6 +7,7 @@ sitelink 총수가 문턱값 이상인 사람만 남긴다 — "한때 실제로
 """
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass
 from urllib.parse import unquote
@@ -58,14 +59,16 @@ class Candidate:
     occupation: str
 
 
-def _build_query(occupation_qids: list[str], min_sitelinks: int, limit: int) -> str:
-    values = " ".join(f"wd:{q}" for q in occupation_qids)
-    # 후보 풀이 큰 직업(예: politician)은 ORDER BY가 정치인 집합 전체를 훑어 WDQS 60초
-    # 제한(504)에 걸린다. 두 가지로 비용을 낮춘다:
+def _build_query(qid: str, min_sitelinks: int, limit: int) -> str:
+    # 후보 풀이 큰 직업(예: politician)은 ORDER BY가 그 집합 전체를 훑어 WDQS 60초
+    # 제한(504)에 걸린다. 세 가지로 비용을 낮춘다:
     #   1) sitelink 문턱을 서버측 FILTER로 밀어 넣어 정렬 대상 집합을 먼저 줄인다
     #      (대다수 인물은 sitelink가 적어 이 필터 하나로 후보가 크게 줄어든다).
     #   2) 정렬·상한은 ?person/?sitelinks 두 컬럼만 다루는 서브쿼리에서 끝내고,
     #      라벨·문서 URL 같은 무거운 OPTIONAL 조인은 상위 N명에 대해서만 바깥에서 푼다.
+    #   3) P106을 VALUES 세트가 아니라 '단일 바운드'(wdt:P106 wd:{qid})로 박는다 —
+    #      여러 QID를 VALUES로 묶으면 P106 인덱스를 못 타 같은 규모라도 504가 난다.
+    #      그래서 직업군에 QID가 여러 개면 QID마다 쿼리를 따로 돌려 상위에서 병합한다.
     # en/ko 문서 요구(FILTER BOUND)로 상위권 일부가 탈락할 수 있어 서브쿼리에서 3배
     # 과다-추출한 뒤 바깥에서 limit으로 자른다.
     inner_limit = limit * 3
@@ -74,9 +77,8 @@ SELECT ?person ?labelEn ?labelKo ?enArticle ?koArticle ?sitelinks ?birth WHERE {
   {{
     SELECT ?person ?sitelinks WHERE {{
       ?person wdt:P31 wd:Q5 ;
-              wdt:P106 ?occupation ;
+              wdt:P106 wd:{qid} ;
               wikibase:sitelinks ?sitelinks .
-      VALUES ?occupation {{ {values} }}
       FILTER(?sitelinks >= {min_sitelinks})
     }}
     ORDER BY DESC(?sitelinks)
@@ -139,13 +141,13 @@ def _title_from_article_url(url: str | None) -> str | None:
 
 
 def _fetch_one(
-    qids: list[str],
+    qid: str,
     occupation_label: str,
     min_sitelinks: int,
     limit: int,
 ) -> list[Candidate]:
-    """단일 직업군(qids) 후보 풀을 SPARQL 한 번으로 가져온다."""
-    query = _build_query(qids, min_sitelinks, limit)
+    """단일 직업 QID 후보 풀을 SPARQL 한 번으로 가져온다."""
+    query = _build_query(qid, min_sitelinks, limit)
     resp = _post_sparql(query)
     resp.raise_for_status()
     bindings = resp.json()["results"]["bindings"]
@@ -180,18 +182,33 @@ def fetch_candidates(
 ) -> list[Candidate]:
     """occupation(=OCCUPATION_QIDS 키, 'all'이면 전 직업군) 후보 풀을 SPARQL로 가져온다.
 
-    'all'은 한 방의 거대 UNION 쿼리로 뽑지 않는다 — 전 직업 합집합을 ORDER BY 하면 WDQS
-    60초 제한에 걸린다. 대신 직업군별로 (검증된) 가벼운 쿼리를 각각 돌려 병합한다. limit은
-    '직업군당' 상한으로 동작하며, 한 인물이 여러 직업을 가지면 sitelink가 가장 큰 쪽으로
-    중복 제거한다(occupation 라벨도 그때의 직업으로 확정).
+    거대 UNION 한 방으로 뽑지 않는다 — 여러 직업 QID를 묶어 ORDER BY 하면 WDQS 60초
+    제한에 걸린다(_build_query 참고). 대신 직업 QID마다 (검증된) 가벼운 쿼리를 각각 돌려
+    병합한다. limit은 'QID당' 상한으로 동작하며, 한 인물이 여러 직업을 가지면 sitelink가
+    가장 큰 쪽으로 중복 제거한다(occupation 라벨도 그때의 직업으로 확정).
+
+    개별 QID 쿼리가 재시도까지 소진하고 실패하면(드문 타임아웃) 그 QID만 건너뛰고 경고를
+    남긴다 — 한 직업의 실패로 'all' 전체가 죽지 않게 한다.
     """
-    if occupation != "all":
-        return _fetch_one(OCCUPATION_QIDS[occupation], occupation, min_sitelinks, limit)
+    if occupation == "all":
+        groups = list(OCCUPATION_QIDS.items())
+    else:
+        groups = [(occupation, OCCUPATION_QIDS[occupation])]
 
     merged: dict[str, Candidate] = {}
-    for name, qids in OCCUPATION_QIDS.items():
-        for c in _fetch_one(qids, name, min_sitelinks, limit):
-            existing = merged.get(c.qid)
-            if existing is None or c.sitelinks > existing.sitelinks:
-                merged[c.qid] = c
+    first = True
+    for name, qids in groups:
+        for qid in qids:
+            if not first:
+                time.sleep(1.0)  # WDQS 예의상 간격 — 연속 쿼리 스로틀 완화
+            first = False
+            try:
+                found = _fetch_one(qid, name, min_sitelinks, limit)
+            except httpx.HTTPError as exc:
+                print(f"  ! {name}({qid}) 조회 실패 — 건너뜀: {exc}", file=sys.stderr)
+                continue
+            for c in found:
+                existing = merged.get(c.qid)
+                if existing is None or c.sitelinks > existing.sitelinks:
+                    merged[c.qid] = c
     return sorted(merged.values(), key=lambda c: c.sitelinks, reverse=True)
