@@ -22,3 +22,7 @@ __pycache__/
 .venv/
 venv/
 .removed/
+
+# people/ — 잊힌 인물 발굴 스파이크 캐시/산출물
+people_cache/
+people_out/
