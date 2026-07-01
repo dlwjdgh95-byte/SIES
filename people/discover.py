@@ -73,10 +73,12 @@ def main() -> None:
 
     print("[2/3] Wikimedia pageviews 조회...")
     series_by_qid = {}
-    for c in candidates:
+    for i, c in enumerate(candidates, 1):
         project = "en.wikipedia" if c.enwiki_title else "ko.wikipedia"
         title = c.enwiki_title or c.kowiki_title
         series_by_qid[c.qid] = fetch_pageviews(project, title, CACHE_DIR, refresh=args.refresh)
+        if i % 100 == 0:
+            print(f"  ... {i}/{len(candidates)}", flush=True)
 
     trend_signals = None
     if args.with_trends:
