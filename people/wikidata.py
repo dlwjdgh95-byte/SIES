@@ -7,8 +7,10 @@ sitelink 총수가 문턱값 이상인 사람만 남긴다 — "한때 실제로
 """
 from __future__ import annotations
 
-import httpx
+import time
 from dataclasses import dataclass
+
+import httpx
 
 SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT = "SIES-people-spike/0.1 (feasibility spike; personal project)"
@@ -38,14 +40,30 @@ class Candidate:
     occupation: str
 
 
-def _build_query(occupation_qids: list[str], limit: int) -> str:
+def _build_query(occupation_qids: list[str], min_sitelinks: int, limit: int) -> str:
     values = " ".join(f"wd:{q}" for q in occupation_qids)
+    # 후보 풀이 큰 직업(예: politician)은 ORDER BY가 정치인 집합 전체를 훑어 WDQS 60초
+    # 제한(504)에 걸린다. 두 가지로 비용을 낮춘다:
+    #   1) sitelink 문턱을 서버측 FILTER로 밀어 넣어 정렬 대상 집합을 먼저 줄인다
+    #      (대다수 인물은 sitelink가 적어 이 필터 하나로 후보가 크게 줄어든다).
+    #   2) 정렬·상한은 ?person/?sitelinks 두 컬럼만 다루는 서브쿼리에서 끝내고,
+    #      라벨·문서 URL 같은 무거운 OPTIONAL 조인은 상위 N명에 대해서만 바깥에서 푼다.
+    # en/ko 문서 요구(FILTER BOUND)로 상위권 일부가 탈락할 수 있어 서브쿼리에서 3배
+    # 과다-추출한 뒤 바깥에서 limit으로 자른다.
+    inner_limit = limit * 3
     return f"""
 SELECT ?person ?labelEn ?labelKo ?enArticle ?koArticle ?sitelinks ?birth WHERE {{
-  ?person wdt:P31 wd:Q5 ;
-          wdt:P106 ?occupation ;
-          wikibase:sitelinks ?sitelinks .
-  VALUES ?occupation {{ {values} }}
+  {{
+    SELECT ?person ?sitelinks WHERE {{
+      ?person wdt:P31 wd:Q5 ;
+              wdt:P106 ?occupation ;
+              wikibase:sitelinks ?sitelinks .
+      VALUES ?occupation {{ {values} }}
+      FILTER(?sitelinks >= {min_sitelinks})
+    }}
+    ORDER BY DESC(?sitelinks)
+    LIMIT {inner_limit}
+  }}
   OPTIONAL {{ ?person rdfs:label ?labelEn . FILTER(LANG(?labelEn) = "en") }}
   OPTIONAL {{ ?person rdfs:label ?labelKo . FILTER(LANG(?labelKo) = "ko") }}
   OPTIONAL {{ ?enArticle schema:about ?person ; schema:isPartOf <https://en.wikipedia.org/> . }}
@@ -56,6 +74,36 @@ SELECT ?person ?labelEn ?labelKo ?enArticle ?koArticle ?sitelinks ?birth WHERE {
 ORDER BY DESC(?sitelinks)
 LIMIT {limit}
 """.strip()
+
+
+def _post_sparql(query: str, retries: int = 4) -> httpx.Response:
+    """SPARQL POST — 일시적 실패(네트워크 오류·5xx)는 지수 백오프로 재시도한다.
+
+    WDQS는 비싼 쿼리로 타임아웃을 반복하면 잠시 연결을 끊거나 5xx를 돌려주므로,
+    스파이크 실행 한 번이 일시적 흔들림에 통째로 죽지 않도록 감싼다.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            resp = httpx.post(
+                SPARQL_ENDPOINT,
+                data={"query": query},
+                headers={
+                    "Accept": "application/sparql-results+json",
+                    "User-Agent": USER_AGENT,
+                },
+                timeout=90.0,
+            )
+            if resp.status_code >= 500:
+                resp.raise_for_status()
+            return resp
+        except (httpx.HTTPError,) as exc:
+            last_exc = exc
+            if attempt == retries - 1:
+                break
+            time.sleep(2 ** (attempt + 1))  # 2s, 4s, 8s, ...
+    assert last_exc is not None
+    raise last_exc
 
 
 def _title_from_article_url(url: str | None) -> str | None:
@@ -73,21 +121,16 @@ def fetch_candidates(
 ) -> list[Candidate]:
     """occupation(=OCCUPATION_QIDS 키, 'all'이면 전체 합집합) 후보 풀을 SPARQL로 가져온다.
 
-    sitelink 문턱값은 SPARQL FILTER가 아니라 클라이언트 사이드에서 거른다 — 재쿼리 없이
-    임계값만 바꿔 재실행할 수 있게(캐시된 응답을 그대로 재사용할 여지를 남겨둔다).
+    sitelink 문턱값은 서버측 FILTER로 밀어 넣어 정렬 비용을 낮춘다(_build_query 참고).
+    클라이언트 사이드 재확인은 안전망 — 서브쿼리 과다-추출 경계에서 들어온 값을 한 번 더 거른다.
     """
     if occupation == "all":
         qids = [q for group in OCCUPATION_QIDS.values() for q in group]
     else:
         qids = OCCUPATION_QIDS[occupation]
 
-    query = _build_query(qids, limit)
-    resp = httpx.post(
-        SPARQL_ENDPOINT,
-        data={"query": query},
-        headers={"Accept": "application/sparql-results+json", "User-Agent": USER_AGENT},
-        timeout=60.0,
-    )
+    query = _build_query(qids, min_sitelinks, limit)
+    resp = _post_sparql(query)
     resp.raise_for_status()
     bindings = resp.json()["results"]["bindings"]
 
