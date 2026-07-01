@@ -30,24 +30,39 @@ def _client() -> httpx.Client:
     return _CLIENT
 
 
-def _get_with_retry(url: str, retries: int = 4) -> httpx.Response | None:
-    """GET — 일시적 실패(네트워크 오류·5xx)는 지수 백오프로 재시도.
+# 요청 간 최소 간격(초). 커넥션 재사용으로 요청이 back-to-back으로 나가자
+# Wikimedia가 429를 던졌다 — 대량 순차 조회는 스로틀이 안전하다.
+REQUEST_INTERVAL = 0.15
 
+
+def _get_with_retry(url: str, retries: int = 5) -> httpx.Response | None:
+    """GET — 일시적 실패(네트워크 오류·429·5xx)는 지수 백오프로 재시도.
+
+    429는 Retry-After 헤더가 있으면 그만큼(없으면 백오프만큼) 기다린 뒤 재시도한다.
     재시도를 소진하면 None — 대량 순차 조회 중 한 명의 실패로 전체 실행이
     죽지 않도록 호출자가 '이 사람만 건너뜀'을 택할 수 있게 한다.
     """
     for attempt in range(retries):
+        backoff = 2.0 ** (attempt + 1)  # 2s, 4s, 8s, 16s
         try:
             resp = _client().get(url)
-            if resp.status_code >= 500:
-                resp.raise_for_status()
-            return resp
         except httpx.HTTPError as exc:
             if attempt == retries - 1:
                 print(f"  ! pageviews 실패({url.rsplit('/metrics/', 1)[-1][:80]}) — 건너뜀: {exc}",
                       file=sys.stderr)
                 return None
-            time.sleep(2 ** (attempt + 1))  # 2s, 4s, 8s
+            time.sleep(backoff)
+            continue
+        if resp.status_code == 429 or resp.status_code >= 500:
+            if attempt == retries - 1:
+                print(f"  ! pageviews HTTP {resp.status_code}"
+                      f"({url.rsplit('/metrics/', 1)[-1][:80]}) — 건너뜀", file=sys.stderr)
+                return None
+            retry_after = resp.headers.get("retry-after", "")
+            delay = float(retry_after) if retry_after.replace(".", "", 1).isdigit() else backoff
+            time.sleep(max(delay, backoff))
+            continue
+        return resp
     return None
 
 
@@ -82,6 +97,7 @@ def fetch_pageviews(
 
     end = end or _this_month_start()
     url = f"{PAGEVIEWS_BASE}/{project}/all-access/user/{quote(article, safe='')}/monthly/{start}/{end}"
+    time.sleep(REQUEST_INTERVAL)  # 캐시 미스일 때만 도달 — 네트워크 요청만 스로틀된다
     resp = _get_with_retry(url)
     if resp is None:
         # 지속 실패 — 캐시에 쓰지 않고 빈 시계열 반환(다음 실행에서 자연 재시도되도록).
