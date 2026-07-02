@@ -69,6 +69,23 @@ def test_render_card_with_story():
     assert "서사 미생성" not in md
 
 
+def test_render_card_new_insight_format():
+    story = {
+        "headline": "권력 없는 1인자",
+        "peak_story": "정점 서사 본문.",
+        "concept": {"name": "권한-권력 분리", "explanation": "개념 설명 본문."},
+        "business_insight": "비즈니스 교훈 본문.",
+        "today_action": "오늘 회의에서 확인해보라.",
+        "tags": ["거버넌스"],
+    }
+    md = render_card(SAMPLE, story)
+    assert "## 개념 렌즈 — 권한-권력 분리" in md
+    assert "개념 설명 본문." in md
+    assert "## 일하는 사람에게" in md and "비즈니스 교훈 본문." in md
+    assert "## 오늘 바꿔볼 한 가지" in md and "> 오늘 회의에서 확인해보라." in md
+    assert "현대 지식인에게" not in md  # 신형 스키마에선 구 섹션 대신 신 섹션
+
+
 def test_render_card_without_story_placeholder():
     md = render_card(SAMPLE, None)
     assert "서사 미생성" in md

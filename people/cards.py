@@ -68,11 +68,20 @@ def render_card(e: dict, story: dict | None) -> str:
         if e.get("summary"):
             lines += ["**위키 발췌**: " + e["summary"], ""]
 
-    lines += ["## 현대 지식인에게", ""]
-    if story and story.get("modern_inspiration"):
-        lines += [story["modern_inspiration"], ""]
+    concept = (story or {}).get("concept")
+    if concept:
+        lines += [f"## 개념 렌즈 — {concept['name']}", "", concept["explanation"], ""]
+
+    if story and story.get("business_insight"):
+        lines += ["## 일하는 사람에게", "", story["business_insight"], ""]
+    elif story and story.get("modern_inspiration"):
+        # 구버전 스키마(영감 칸) 호환 — 재생성 전까지는 이 칸으로 렌더링한다.
+        lines += ["## 현대 지식인에게", "", story["modern_inspiration"], ""]
     else:
-        lines += ["_(서사 미생성)_", ""]
+        lines += ["## 현대 지식인에게", "", "_(서사 미생성)_", ""]
+
+    if story and story.get("today_action"):
+        lines += ["## 오늘 바꿔볼 한 가지", "", f"> {story['today_action']}", ""]
 
     if story and story.get("tags"):
         lines += ["`" + "` `".join(story["tags"]) + "`", ""]
