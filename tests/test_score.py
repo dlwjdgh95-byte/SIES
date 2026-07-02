@@ -87,13 +87,26 @@ def test_still_viewed_person_is_gated_out():
     assert "gone" in qids
 
 
+def test_viral_peak_but_still_famous_is_gated_out():
+    # 비욘세 케이스: 정점이 바이럴 스파이크라 '자기 정점 대비 비율'(A_now)은 낮지만,
+    # 절대 규모로는 지금도 월 수십만 뷰 → A_abs가 잡아서 제외해야 한다.
+    viral = _series(("2017-02", 2_000_000), ("2026-04", 230_000), ("2026-05", 230_000))
+    quiet = _series(("2017-02", 2_000_000), ("2026-04", 5_000), ("2026-05", 5_000))
+    series = {"viral_famous": viral, "quiet": quiet}
+    ranked = score_candidates(series, [_person("viral_famous"), _person("quiet")], NOW)
+    qids = {s.candidate.qid for s in ranked}
+    assert "viral_famous" not in qids   # A_now=0.115지만 A_abs≈0.96
+    assert "quiet" in qids
+
+
 def test_activity_axes_are_reported():
     series = {"gone": _series(("2016-03", 100_000), ("2026-05", 1_000))}
     ranked = score_candidates(series, [_person("gone")], NOW)
     s = ranked[0]
     assert s.activity_now == 0.01           # 1000/100000
     assert 0.0 < s.activity_time < 0.4      # 10년 전 정점, 반감기 3년
-    assert s.person_activity == max(s.activity_time, s.activity_now)
+    assert 0.0 < s.activity_abs < 0.02      # 월 1천 뷰 — 절대 규모로도 조용
+    assert s.person_activity == max(s.activity_time, s.activity_now, s.activity_abs)
     assert s.recent_views == 1_000
 
 

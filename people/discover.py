@@ -43,6 +43,7 @@ def _to_json(scores: list[PersonScore]) -> list[dict]:
                 "activity": s.person_activity,
                 "activity_time": s.activity_time,
                 "activity_now": s.activity_now,
+                "activity_abs": s.activity_abs,
                 "recent_monthly_views": s.recent_views,
                 "band_weight": s.band_weight,
                 "trend_signal": s.trend_signal,
@@ -106,7 +107,8 @@ def main() -> None:
         link = _wiki_url("ko", c.kowiki_title) or _wiki_url("en", c.enwiki_title)
         print(
             f"{i:>2}. 점수 {s.score:.1f} (정점저명 {s.peak_prominence:.2f} · "
-            f"활성도 {s.person_activity:.2f}[시간{s.activity_time:.2f}/현재{s.activity_now:.2f}] · "
+            f"활성도 {s.person_activity:.2f}"
+            f"[시간{s.activity_time:.2f}/궤적{s.activity_now:.2f}/절대{s.activity_abs:.2f}] · "
             f"밴드 {s.band_weight:.2f} · 최근 {s.recent_views:,.0f}/월) "
             f"{name} [{s.peak_month}] {link}"
         )
