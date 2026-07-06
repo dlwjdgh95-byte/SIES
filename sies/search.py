@@ -9,15 +9,10 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 
-from .embed import DEFAULT_MODEL, MODELS, get_embedder
+from .embed import DEFAULT_MODEL, MODELS
 from .rank import DEFAULT_HALF_LIFE, rank_baseline, rank_inverted
-from .retrieve import candidate_pool
-from .store import connect
-
-
-def _preview(text: str, n: int = 90) -> str:
-    text = " ".join(text.split())
-    return text[:n] + ("…" if len(text) > n else "")
+from .retrieve import query_pool
+from .util import preview
 
 
 def main() -> None:
@@ -31,12 +26,7 @@ def main() -> None:
                     help="활성도 반감기(일). 작을수록 옛 글을 더 띄움")
     args = ap.parse_args()
 
-    emb = get_embedder(args.model).load()
-    qv = emb.encode([args.query], is_query=True)[0]
-
-    conn = connect(args.db)
-    pool = candidate_pool(conn, args.model, qv)
-    conn.close()
+    pool = query_pool(args.db, args.model, args.query)
 
     mode = "역전" if args.invert else "베이스라인"
     print(f'질의: "{args.query}"  [{args.model} · {mode}]\n')
@@ -48,13 +38,13 @@ def main() -> None:
             print(f"{i:>2}. 점수 {s.score:.3f} (유사도 {s.similarity:.3f} · 활성도 {s.activity:.2f}"
                   f"[시{s.activity_time:.2f}/볼{s.activity_vol:.2f},V={s.volume}]"
                   f" · 밴드 {s.band_weight:.2f}) [{c['title']}] {c['timestamp']}")
-            print(f"    {_preview(c['text'])}")
+            print(f"    {preview(c['text'], 90)}")
     else:
         ranked = rank_baseline(pool)[: args.k]
         for i, s in enumerate(ranked, 1):
             c = s.candidate
             print(f"{i:>2}. 유사도 {s.similarity:.3f} [{c['title']}] {c['timestamp']}")
-            print(f"    {_preview(c['text'])}")
+            print(f"    {preview(c['text'], 90)}")
 
 
 if __name__ == "__main__":

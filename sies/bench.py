@@ -13,6 +13,7 @@ import argparse
 
 from .embed import DEFAULT_MODEL, MODELS, get_embedder
 from .store import connect, search
+from .util import preview
 
 # 감각어·함축이 많은 기본 질의 — 코퍼스(개인 에세이) 성격에 맞춤
 DEFAULT_QUERIES = [
@@ -21,10 +22,6 @@ DEFAULT_QUERIES = [
     "어린 시절 반복했던 집안일",
     "금기를 넘는 순간의 망설임",
 ]
-
-
-def _preview(text: str, n: int = 70) -> str:
-    return " ".join(text.split())[:n]
 
 
 def main() -> None:
@@ -54,7 +51,7 @@ def main() -> None:
             if not res:
                 print("    (결과 없음 — 이 모델로 먼저 인덱싱했나?)")
             for rank, r in enumerate(res, 1):
-                print(f"    {rank}. ({r['distance']:.3f}) {r['title']} :: {_preview(r['text'])}")
+                print(f"    {rank}. ({r['distance']:.3f}) {r['title']} :: {preview(r['text'], 70)}")
         print()
     conn.close()
 

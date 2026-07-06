@@ -11,12 +11,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 
 from .ab import hit_rate
-
-# 이 활성도 미만이면 '잊힌' 것으로 본다(0=완전 잊힘, 1=방금).
-LOW_ACTIVITY = 0.4
+from .rank import LOW_ACTIVITY  # '잊힌' 판정 기준 — rank가 단일 소스
+from .util import fmt_pct, read_log
 
 
 def _median(xs: list[float]) -> float | None:
@@ -106,18 +104,13 @@ def aggregate(records: list[dict]) -> dict:
     }
 
 
-def _fmt(x) -> str:
-    return f"{x:.1%}" if isinstance(x, float) else "—"
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description="SIES A/B 로그 집계")
     ap.add_argument("--log", default="search_log.jsonl")
     args = ap.parse_args()
 
     try:
-        with open(args.log, encoding="utf-8") as f:
-            records = [json.loads(ln) for ln in f if ln.strip()]
+        records = read_log(args.log)
     except FileNotFoundError:
         print(f"로그 없음: {args.log}. 먼저 `python -m sies.ab \"질의\" --judge` 로 쌓아라.")
         return
@@ -125,14 +118,14 @@ def main() -> None:
     agg = aggregate(records)
     print(f"세션: 총 {agg['sessions_total']}개 / 판정된 것 {agg['sessions_judged']}개\n")
     print(f"{'':12} {'베이스라인':>10} {'역전':>10}")
-    print(f"{'매크로 적중률':12} {_fmt(agg['macro']['baseline']):>10} {_fmt(agg['macro']['inversion']):>10}")
-    print(f"{'마이크로 적중률':12} {_fmt(agg['micro']['baseline']):>10} {_fmt(agg['micro']['inversion']):>10}")
+    print(f"{'매크로 적중률':12} {fmt_pct(agg['macro']['baseline']):>10} {fmt_pct(agg['macro']['inversion']):>10}")
+    print(f"{'마이크로 적중률':12} {fmt_pct(agg['micro']['baseline']):>10} {fmt_pct(agg['micro']['inversion']):>10}")
 
     io = agg["i_only"]
     io_rate = io["hit"] / io["judged"] if io["judged"] else None
     print(
         f"\n역전 단독(I-only) 적중: {io['hit']}개"
-        f" / 판정 {io['judged']}개 (적중률 {_fmt(io_rate)})"
+        f" / 판정 {io['judged']}개 (적중률 {fmt_pct(io_rate)})"
         f" · 후보 {io['candidates']}개 · 건진 세션 {io['sessions_with_hit']}개"
     )
     print("  └ 베이스라인이 절대 안 올렸을 후보를 역전이 건져 적중시킨 수 — 도구의 본전.")

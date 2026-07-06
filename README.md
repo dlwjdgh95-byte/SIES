@@ -63,8 +63,9 @@ sies/
   chunk.py       # 문단 단위 청킹
   embed.py       # 임베딩 백엔드 (기본 kure / bge-m3 / minilm)
   store.py       # sqlite-vec 저장·KNN 검색
-  retrieve.py    # 질의 임베딩 + 전체 후보 풀 조회 (밴드패스용)
-  rank.py        # ★ 역전 재순위 — 활성도·밴드패스·점수 (제품의 뇌, ML 없음)
+  retrieve.py    # 질의 임베딩 + 전체 후보 풀 조회 (CLI 공용 진입로)
+  rank.py        # ★ 역전 재순위 — 활성도·밴드패스·점수 (제품의 뇌, ML 없음. 상수·점수식 단일 소스)
+  util.py        # CLI 공용 소품 (미리보기·퍼센트 포맷·로그 읽기)
   index.py       # 인덱싱 CLI
   search.py      # 검색 CLI (베이스라인 / --invert 역전)
   ab.py          # A/B 하니스 — 블라인드 판정 + JSONL 로그
