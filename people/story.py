@@ -152,6 +152,30 @@ def write_prompt_pack(enriched: list[dict], out_dir: Path) -> None:
     print(f"프롬프트 팩 저장: {out_dir} ({len(enriched)}명 + _SYSTEM/_SCHEMA)")
 
 
+def generate_one(client, e: dict) -> dict | None:
+    """한 인물의 서사를 생성한다. 거부/오류 시 None (호출자가 건너뜀 판단)."""
+    import anthropic
+
+    try:
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=16000,
+            thinking={"type": "adaptive"},
+            system=[{"type": "text", "text": SYSTEM,
+                      "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": build_prompt(e)}],
+            output_config={"format": {"type": "json_schema", "schema": STORY_SCHEMA}},
+        )
+    except anthropic.APIStatusError as exc:
+        print(f"  ! API 오류({exc.status_code}): {exc.message}", file=sys.stderr)
+        return None
+    if resp.stop_reason == "refusal":
+        print("  ! 거부됨", file=sys.stderr)
+        return None
+    text = next(b.text for b in resp.content if b.type == "text")
+    return json.loads(text)
+
+
 def generate_stories(enriched: list[dict], out_path: Path) -> None:
     import anthropic
 
@@ -168,24 +192,10 @@ def generate_stories(enriched: list[dict], out_path: Path) -> None:
             print(f"[{i}/{len(enriched)}] {name} — 캐시됨, 건너뜀")
             continue
         print(f"[{i}/{len(enriched)}] {name} 생성 중...")
-        try:
-            resp = client.messages.create(
-                model=MODEL,
-                max_tokens=16000,
-                thinking={"type": "adaptive"},
-                system=[{"type": "text", "text": SYSTEM,
-                          "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": build_prompt(e)}],
-                output_config={"format": {"type": "json_schema", "schema": STORY_SCHEMA}},
-            )
-        except anthropic.APIStatusError as exc:
-            print(f"  ! API 오류({exc.status_code}) — 건너뜀: {exc.message}", file=sys.stderr)
+        story = generate_one(client, e)
+        if story is None:
             continue
-        if resp.stop_reason == "refusal":
-            print(f"  ! 거부됨 — 건너뜀", file=sys.stderr)
-            continue
-        text = next(b.text for b in resp.content if b.type == "text")
-        stories[qid] = json.loads(text)
+        stories[qid] = story
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(stories, ensure_ascii=False, indent=2))
 
