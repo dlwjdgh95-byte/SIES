@@ -1,12 +1,7 @@
 """A/B 로그 집계 — 킬 테스트 판정.
 
-각 세션의 적중률을 모아 베이스라인 대비 역전이 이기는지 본다.
-- 매크로: 세션별 적중률의 평균
-- 마이크로: 전체 후보를 합쳐 hit/(hit+miss)
-
-사용:
-    uv run python -m sies.stats
-    uv run python -m sies.stats --log search_log.jsonl
+매크로=세션별 적중률 평균, 마이크로=전체 후보 hit/(hit+miss).
+부가 지표: I-only(역전 단독 적중 = 재현율 본전), 적중의 잊힘도.
 """
 from __future__ import annotations
 

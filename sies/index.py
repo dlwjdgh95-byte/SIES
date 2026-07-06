@@ -1,9 +1,4 @@
-"""인덱싱 CLI — corpus/ 를 읽어 청킹·임베딩·저장.
-
-사용:
-    uv run python -m sies.index --model bge-m3
-    uv run python -m sies.index --model kure --corpus corpus --db sies.db
-"""
+"""인덱싱 CLI — corpus/ 를 읽어 청킹·(근접중복 제거)·임베딩·저장."""
 from __future__ import annotations
 
 import argparse

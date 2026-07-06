@@ -1,11 +1,6 @@
-"""Phase 0 임베딩 벤치 — 같은 질의를 여러 모델에 돌려 눈으로 비교.
+"""Phase 0 임베딩 벤치 — 같은 질의를 여러 모델에 돌려 나란히 눈으로 비교.
 
-PLAN Phase 0: "감각어·함축 많은 네 문장에서 의미검색이 실제로 닿는지 눈으로 확인."
-정답 라벨이 아직 없으므로 자동 점수가 아니라 나란히 보여주는 게 목적이다.
-
-사용:
-    uv run python -m sies.bench --models bge-m3 kure
-    uv run python -m sies.bench --queries queries.txt
+정답 라벨이 아직 없으므로 자동 점수가 아니라 나란히 보여주는 게 목적(PLAN Phase 0).
 """
 from __future__ import annotations
 

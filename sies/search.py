@@ -1,9 +1,4 @@
-"""검색 CLI — 베이스라인(순수 유사도) 또는 역전 재순위(--invert).
-
-사용:
-    uv run python -m sies.search "할머니에 대한 기억"            # 베이스라인
-    uv run python -m sies.search "관성에 대하여" --invert        # 역전 재순위
-"""
+"""검색 CLI — 베이스라인(순수 유사도) 또는 역전 재순위(--invert)."""
 from __future__ import annotations
 
 import argparse

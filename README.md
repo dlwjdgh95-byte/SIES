@@ -54,29 +54,7 @@ uv run python -m sies.bench --models kure bge-m3
 uv run pytest
 ```
 
-## 구조
+## 구조·원칙
 
-```
-corpus/          # 개인 글 (git 미추적). 소스별 하위 폴더. 형식: .md/.txt 선호
-sies/
-  corpus.py      # 로딩(.md/.txt/.pdf/.hwp)·Notion 메타 파싱·타임스탬프(내용→파일명→mtime)
-  chunk.py       # 문단 단위 청킹
-  embed.py       # 임베딩 백엔드 (기본 kure / bge-m3 / minilm)
-  store.py       # sqlite-vec 저장·KNN 검색
-  retrieve.py    # 질의 임베딩 + 전체 후보 풀 조회 (CLI 공용 진입로)
-  rank.py        # ★ 역전 재순위 — 활성도·밴드패스·점수 (제품의 뇌, ML 없음. 상수·점수식 단일 소스)
-  util.py        # CLI 공용 소품 (미리보기·퍼센트 포맷·로그 읽기)
-  index.py       # 인덱싱 CLI
-  search.py      # 검색 CLI (베이스라인 / --invert 역전)
-  ab.py          # A/B 하니스 — 블라인드 판정 + JSONL 로그
-  stats.py       # A/B 로그 적중률 집계 (킬 테스트 판정)
-  bench.py       # 모델 비교
-sies.db          # sqlite-vec DB (git 미추적)
-search_log.jsonl # A/B 판정 로그 (git 미추적)
-```
-
-## 원칙 (PLAN에서)
-
-- **AI는 검색 결정에 절대 닿지 않는다.** 검색 점수 = 결정론적 산수(벡터+가중치).
-  LLM은 분해·태깅·해설 등 앞뒤 단계에만.
-- 각 Phase는 *그 자체로 쓸 물건*으로 끝나게 잘려 있다.
+모듈 지도와 작업 규칙은 [`CLAUDE.md`](CLAUDE.md), 설계 원칙과 Phase 로드맵은 [`PLAN.md`](PLAN.md) 참고.
+`corpus/`(개인 글)·`sies.db`·`search_log.jsonl`은 git 미추적 개인 데이터.
