@@ -26,6 +26,7 @@
 | ab.py | A/B 하니스: 블라인드 판정 → search_log.jsonl | 킬 테스트 |
 | stats.py | 로그 집계(매크로/마이크로/I-only/잊힘도) | 킬 테스트 |
 | replay.py | 기존 로그로 점수식 오프라인 비교 | 점수식 실험 |
+| today.py | "오늘의 잊힌 나" 일간 푸시 CLI(prepare/mark) — 질의 없음, 점수 = 1−활성도 + 90일 냉각 | 일간 루틴 |
 | bench.py | Phase 0 모델 나란히 비교 (유물) | 거의 안 읽음 |
 | util.py | preview/fmt_pct/read_log — CLI 공용 소품 | 거의 안 읽음 |
 

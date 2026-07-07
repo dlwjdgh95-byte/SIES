@@ -39,3 +39,17 @@ SIES 저장소에서 오늘의 잊힌 인물을 쓰레드에 올려줘.
   실발행 성공 시에만 posted로 확정되므로 중간 실패는 다음 루틴이 이어서 처리한다.
 - 사진: enrich가 수집한 Wikimedia Commons 공개 URL을 1번 포스트에 첨부(자유 라이선스).
 - 검증: 포스트 3~8개·각 500자 이하·빈 포스트 금지(`people/threads.py`)를 통과해야 발행.
+
+## 오늘의 잊힌 나 (sies.today)
+
+같은 방식으로 등록하는 개인용 루틴(매일 1회). 발췌를 고쳐 쓰지 않는 것이 핵심이다.
+
+```
+SIES 저장소에서 오늘의 잊힌 나를 보여줘.
+
+1. `uv run python -m sies.today prepare` 실행.
+2. 출력된 발췌를 원문 그대로 보여줘 — 수정·요약 금지, 한 줄 해설만 덧붙여도 된다.
+3. 내 반응을 듣고 기록해줘: 읽었으면 `uv run python -m sies.today mark --read`,
+   넘겼으면 `--skip`. 좋았다/별로였다는 말이 있으면 `--good`/`--bad`를 붙여서
+   (예: `uv run python -m sies.today mark --read --good`).
+```
