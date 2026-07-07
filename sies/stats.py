@@ -6,10 +6,26 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date, timedelta
 
 from .ab import hit_rate
 from .rank import LOW_ACTIVITY  # '잊힌' 판정 기준 — rank가 단일 소스
 from .util import fmt_pct, read_log
+
+
+def today_stats(path: str = "today_log.jsonl", days: int = 30) -> None:
+    """'오늘의 잊힌 나' 반응 집계 — 최근 days일의 mark 이벤트만 본다."""
+    try:
+        marks = [r for r in read_log(path) if r.get("event") == "mark"]
+    except FileNotFoundError:
+        print(f"로그 없음: {path}. 먼저 `python -m sies.today prepare` 로 쌓아라.")
+        return
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    marks = [r for r in marks if r.get("ts", "") >= cutoff]
+    judged = [r for r in marks if r.get("judge") in ("good", "bad")]
+    read_rate = sum(r.get("status") == "read" for r in marks) / len(marks) if marks else None
+    good_rate = sum(r["judge"] == "good" for r in judged) / len(judged) if judged else None
+    print(f"최근 {days}일: 마크 {len(marks)}개 · read {fmt_pct(read_rate)} · 판정({len(judged)}개) 중 good {fmt_pct(good_rate)}")
 
 
 def _median(xs: list[float]) -> float | None:
@@ -101,9 +117,13 @@ def aggregate(records: list[dict]) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="SIES A/B 로그 집계")
-    ap.add_argument("--log", default="search_log.jsonl")
+    ap.add_argument("--log", default=None, help="로그 경로 (기본: A/B는 search_log.jsonl, --today는 today_log.jsonl)")
+    ap.add_argument("--today", action="store_true", help="'오늘의 잊힌 나' 반응 집계 (today_log.jsonl)")
     args = ap.parse_args()
 
+    if args.today:
+        return today_stats(args.log or "today_log.jsonl")
+    args.log = args.log or "search_log.jsonl"  # 경로별 기본값 — sentinel이라 --today와 안 섞인다
     try:
         records = read_log(args.log)
     except FileNotFoundError:
