@@ -1,8 +1,4 @@
-"""sqlite-vec 벡터 저장소.
-
-모델별로 임베딩 테이블을 분리(차원이 다르고, Phase 0에서 모델을 비교하므로).
-chunks 테이블은 모델 무관 메타데이터를 보관한다.
-"""
+"""sqlite-vec 저장소 — 모델별 임베딩 테이블 분리(차원 상이·비교용), chunks는 모델 무관 메타."""
 from __future__ import annotations
 
 import sqlite3

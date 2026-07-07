@@ -1,21 +1,10 @@
-"""코퍼스 로딩 — corpus/ 아래 글을 읽어 Document로 정규화한다.
+"""코퍼스 로딩 — corpus/ 아래 글을 Document로 정규화.
 
-지원 형식: .md/.txt(직접), .pdf(pypdf), .hwp(pyhwp), .docx(python-docx). 발굴된 옛 글은 PDF·HWP가 많다.
-
-Notion export 형식을 처리한다:
-    # 제목
-    회차: 31
-    주제/키워드: 냄새
-    작성자: 이정호
-    모임일자: 2026년 3월 29일
-
-    <본문 문단들...>
-
-타임스탬프 우선순위:
-  (1) 내용 메타 날짜('key: value' 헤더) → (2) 본문 머리의 날짜 헤더(시 등) →
-  (3) 파일명의 날짜 → (4) 파일 수정일자.
-날짜는 한국어(2026년 3월 29일)·ISO(2026-03-29)·영어(May 30. 2026) 형식을 인식한다.
-(PDF·HWP 발굴 글은 보통 날짜가 없어 수정일자 = 진짜 옛 날짜로 떨어진다.)
+형식: .md/.txt 직접, .pdf(pypdf)/.hwp(pyhwp)/.docx(python-docx).
+파싱: 첫 H1=제목, 이어지는 'key: value' 블록=메타 (Notion export 관용형).
+타임스탬프 우선순위: 내용 메타 날짜 → 본문 머리 날짜 헤더 → 파일명 → mtime.
+날짜 형식: 한국어(2026년 3월 29일)·ISO(2026-03-29)·영어(May 30. 2026).
+(PDF·HWP 발굴 글은 보통 날짜가 없어 mtime = 진짜 옛 날짜로 떨어진다.)
 """
 from __future__ import annotations
 

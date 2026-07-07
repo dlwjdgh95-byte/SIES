@@ -1,8 +1,4 @@
-"""임베딩 백엔드 — 로컬 sentence-transformers 모델.
-
-Phase 0의 한국어 임베딩 벤치 대상. 모델 레지스트리로 교체/비교를 쉽게 한다.
-검색 점수에 LLM은 절대 닿지 않는다(원칙 2). 여기는 순수 벡터화 단계.
-"""
+"""임베딩 백엔드 — 로컬 sentence-transformers 레지스트리. 순수 벡터화 단계(원칙 2)."""
 from __future__ import annotations
 
 from dataclasses import dataclass

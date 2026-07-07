@@ -1,13 +1,7 @@
-"""A/B 하니스 — 베이스라인 vs 역전, 블라인드 판정 + JSONL 로그.
+"""A/B 하니스 — 베이스라인 vs 도전자 랭커, 블라인드 판정 + JSONL 로그.
 
-킬 테스트: 한 달 로그에서 역전의 '적중률'이 베이스라인을 이기는가(판정자는 나).
-편향을 줄이려 두 방식의 후보를 *섞어 출처를 가린 채* 판정하고, 결과를 로그에 쌓는다.
-
-사용:
-    uv run python -m sies.ab "관성에 대하여" --judge      # 판정까지
-    uv run python -m sies.ab "관성에 대하여"              # 결과만 로그(판정 보류)
-집계:
-    uv run python -m sies.stats
+킬 테스트: 한 달 로그에서 도전자의 '적중률'이 베이스라인을 이기는가(판정자는 나).
+편향을 줄이려 두 방식 후보를 *섞어 출처를 가린 채* 판정한다. 집계는 sies.stats.
 """
 from __future__ import annotations
 
@@ -15,13 +9,11 @@ import argparse
 import datetime as dt
 import json
 import random
-import re
-from pathlib import Path
 
-from .embed import DEFAULT_MODEL, MODELS, get_embedder
+from .embed import DEFAULT_MODEL, MODELS
 from .rank import DEFAULT_HALF_LIFE, rank_baseline, rank_gated, rank_inverted
-from .retrieve import candidate_pool
-from .store import connect
+from .retrieve import query_pool
+from .util import preview
 
 DEFAULT_LOG = "search_log.jsonl"
 
@@ -88,23 +80,6 @@ def _union_candidates(record: dict) -> list[dict]:
     return union
 
 
-_SENT_END = re.compile(r"[.!?…]['\"”’)\]]?\s")
-
-
-def _preview(text: str, n: int = 110) -> str:
-    """공백 정규화 후 n자 근처에서 *문장 경계*로 자른다(중간 절단 방지)."""
-    t = " ".join(text.split())
-    if len(t) <= n:
-        return t
-    ends = [m.end() for m in _SENT_END.finditer(t + " ")]
-    before = [e for e in ends if e <= n]
-    if before:                       # n 이내 마지막 문장 끝
-        return t[: before[-1]].rstrip()
-    if ends:                         # 첫 문장이 n보다 길면 그 문장까지 통째로
-        return t[: ends[0]].rstrip()
-    return t[:n].rsplit(" ", 1)[0] + "…"  # 문장부호가 없으면 단어 경계
-
-
 def judge_interactive(record: dict, text_by_id: dict[int, str]) -> None:
     """후보를 섞어 출처를 가린 채 적중/헛것 판정. 결과를 record['verdicts']에 기록."""
     union = _union_candidates(record)
@@ -113,7 +88,7 @@ def judge_interactive(record: dict, text_by_id: dict[int, str]) -> None:
     for c in union:
         cid = str(c["id"])
         print(f"[{c['title']}] {c['timestamp']}")
-        print(f"  {_preview(text_by_id.get(c['id'], ''))}")
+        print(f"  {preview(text_by_id.get(c['id'], ''))}")
         ans = input("  적중? [h/m/s/q] ").strip().lower()
         if ans == "q":
             break
@@ -152,11 +127,7 @@ def main() -> None:
     ap.add_argument("--judge", action="store_true", help="블라인드 적중/헛것 판정")
     args = ap.parse_args()
 
-    emb = get_embedder(args.model).load()
-    qv = emb.encode([args.query], is_query=True)[0]
-    conn = connect(args.db)
-    pool = candidate_pool(conn, args.model, qv)
-    conn.close()
+    pool = query_pool(args.db, args.model, args.query)
 
     baseline = rank_baseline(pool)
     if args.ranker == "gated":
