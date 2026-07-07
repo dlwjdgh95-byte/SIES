@@ -117,12 +117,13 @@ def aggregate(records: list[dict]) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="SIES A/B 로그 집계")
-    ap.add_argument("--log", default="search_log.jsonl")
+    ap.add_argument("--log", default=None, help="로그 경로 (기본: A/B는 search_log.jsonl, --today는 today_log.jsonl)")
     ap.add_argument("--today", action="store_true", help="'오늘의 잊힌 나' 반응 집계 (today_log.jsonl)")
     args = ap.parse_args()
 
     if args.today:
-        return today_stats()
+        return today_stats(args.log or "today_log.jsonl")
+    args.log = args.log or "search_log.jsonl"  # 경로별 기본값 — sentinel이라 --today와 안 섞인다
     try:
         records = read_log(args.log)
     except FileNotFoundError:
